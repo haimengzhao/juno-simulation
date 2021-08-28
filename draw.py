@@ -1,6 +1,7 @@
 import h5py as h5
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as colors
 from matplotlib.backends.backend_pdf import PdfPages
 
 from utils import polar_from_xyz
@@ -9,6 +10,7 @@ from utils import polar_from_xyz
 Ri = 17.71e3 # inner radius / mm
 Ro = 19.5e3 # outer radius / mm
 N_vertices = 4000 # total num of vertices
+
 Volume_i = 4 / 3 * np.pi * Ri ** 3 # volume of LS
 rho0 = N_vertices / Volume_i # average density / mm^-3
 
@@ -33,7 +35,7 @@ class Drawer:
         # total number
         N = len(x)
 
-        # extract hist statistics
+        # extract histogram statistics
         # density=True: n = dN/(N * dr)
         n, bins, patches = ax.hist(r, bins=1000, density=True)
         ax.cla()
@@ -56,7 +58,7 @@ class Drawer:
         # ax.set_yticklabels(['%.1f' % (2 * i / 5) for i in range(6)])
         
         # density = dN / (4 pi r^2 dr) = n / (4 pi r^2) * N
-        ax.plot(bins[1:], n / (4 * np.pi * bins[1:] ** 2) * N / rho0)
+        ax.plot(bins[1:], n / (4 * np.pi * bins[1:] ** 2) * N / rho0, color='red')
 
         
 
@@ -90,16 +92,45 @@ class Drawer:
         pet = self.petruth
         geo = self.geo
 
-        # Events, Events_i = np.unique(pet['EventID'], return_inverse=True)
+        Events, Events_i = np.unique(pet['EventID'], return_inverse=True)
         Channels, Channels_i = np.unique(pet['ChannelID'], return_inverse=True)
-
-        pet_geo = np.array(geo[Channels][Channels_i][1:])
-
-
-        breakpoint()
         
-        # ax.hist2d()
+        # replace ChannelID with corresponding geo
+        geo_Channels_i = np.array([np.where(geo['ChannelID']==a)[0][0] for a in Channels])
+        pet_geo_i = geo_Channels_i[Channels_i]
+        pet_geo = np.stack([geo['theta'][pet_geo_i], geo['phi'][pet_geo_i]], -1)
 
+        # replace EventID with corresponding xyz
+        xyz_Event_i = np.array([np.where(pt['EventID']==a)[0][0] for a in Events])
+        pet_xyz_i = xyz_Event_i[Events_i]
+        pet_xyz = np.stack([pt['x'][pet_xyz_i], pt['y'][pet_xyz_i], pt['z'][pet_xyz_i]], -1)
+
+        # raplace xyz, geo with polar coordinates
+        pet_polar = np.stack(polar_from_xyz(Ro, pet_geo[:, 0], pet_geo[:, 1], pet_xyz[:, 0], pet_xyz[:, 1], pet_xyz[:, 2]), -1)
+
+        N_PE = len(pet_polar)
+        
+        # extract histogram statistics
+        # density=True: h = d#PE/(#PE dr dtheta)
+        h, xedges, yedges, im = ax.hist2d(pet_polar[:, 0], pet_polar[:, 1], 100, range=[[0, np.pi], [0, Ri]], density=True)
+        ax.cla()
+
+        # expand theta from [0, pi] to [0, 2pi]
+        xedges, yedges = xedges[1:], yedges[1:]
+        xedges_double = np.hstack([xedges, xedges + np.pi])
+        h_double = np.hstack([h, np.fliplr(h)])
+
+        ThetaMesh, RMesh = np.meshgrid(xedges_double, yedges)
+
+        # plot heatmap
+
+        ax.set_title(r'Heatmap of the Probe Function $Prob(R, \theta)$')
+
+        # d#PE/d#Vertices = d#PE/dV * dV/d#Vertices = d#PE/(dV rho0) = d#PE/(2pi r sin(theta) dr dtheta rho0)
+        pcm = ax.pcolormesh(ThetaMesh, RMesh, h_double / (2 * np.pi * RMesh * np.abs(np.sin(ThetaMesh) * rho0) * N_PE), shading='auto', norm=colors.LogNorm())
+
+        fig.colorbar(pcm, label='Expected Number of PE per Vertex')
+        
 
 if __name__ == "__main__":
     import argparse
