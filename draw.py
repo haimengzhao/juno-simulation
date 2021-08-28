@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
+from utils import polar_from_xyz
+
 # constants
 Ri = 17.71e3 # inner radius / mm
 Ro = 19.5e3 # outer radius / mm
@@ -43,7 +45,12 @@ class Drawer:
         ax.set_xticks(np.linspace(0, Ri, 11))
         ax.set_xticklabels(['%.1f' % (i / 10) for i in range(11)])
 
-        ax.set_ylabel(r'Volume Density of Vertices $\rho(r)$ / $\rho_0 = {:.2f} \times 10^{{{:.0f}}} mm^{{-3}}$'.format(*map(float, ('%.2e'%rho0).split('e'))))
+        ax.set_ylabel(
+            r'Volume Density of Vertices $\rho(r)$ / $\rho_0 = {:.2f} \times 10^{{{:.0f}}} mm^{{-3}}$'
+            .format(
+                *map(float, 
+                ('%.2e'%rho0).split('e'))
+                ))
         # ax.set_ylim(0, 2 * rho0)
         # ax.set_yticks(np.linspace(0, 2 * rho0, 6))
         # ax.set_yticklabels(['%.1f' % (2 * i / 5) for i in range(6)])
@@ -74,7 +81,24 @@ class Drawer:
         
 
     def draw_probe(self, fig, ax):
-        print("TODO: Draw probe R(r, theta)")
+        '''
+        draw probe function
+        average over all PMTs (Channels)
+        probe = probe(theta, r)
+        '''
+        pt = self.simtruth
+        pet = self.petruth
+        geo = self.geo
+
+        # Events, Events_i = np.unique(pet['EventID'], return_inverse=True)
+        Channels, Channels_i = np.unique(pet['ChannelID'], return_inverse=True)
+
+        pet_geo = np.array(geo[Channels][Channels_i][1:])
+
+
+        breakpoint()
+        
+        # ax.hist2d()
 
 
 if __name__ == "__main__":
