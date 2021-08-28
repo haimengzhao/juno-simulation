@@ -9,10 +9,7 @@ from utils import polar_from_xyz
 # constants
 Ri = 17.71e3 # inner radius / mm
 Ro = 19.5e3 # outer radius / mm
-N_vertices = 4000 # total num of vertices
-
 Volume_i = 4 / 3 * np.pi * Ri ** 3 # volume of LS
-rho0 = N_vertices / Volume_i # average density / mm^-3
 
 # 该类在测试时会用到，请不要私自修改函数签名，后果自负
 class Drawer:
@@ -20,6 +17,9 @@ class Drawer:
         self.simtruth = data["ParticleTruth"]
         self.petruth = data["PETruth"]
         self.geo = geo["Geometry"]
+
+        self.N_vertices = len(data) # total num of vertices
+        self.rho0 = self.N_vertices / Volume_i # average density / mm^-3
 
     def draw_vertices_density(self, fig, ax):
         '''
@@ -51,14 +51,14 @@ class Drawer:
             r'Volume Density of Vertices $\rho(r)$ / $\rho_0 = {:.2f} \times 10^{{{:.0f}}} mm^{{-3}}$'
             .format(
                 *map(float, 
-                ('%.2e'%rho0).split('e'))
+                ('%.2e'%self.rho0).split('e'))
                 ))
         # ax.set_ylim(0, 2 * rho0)
         # ax.set_yticks(np.linspace(0, 2 * rho0, 6))
         # ax.set_yticklabels(['%.1f' % (2 * i / 5) for i in range(6)])
         
         # density = dN / (4 pi r^2 dr) = n / (4 pi r^2) * N
-        ax.plot(bins[1:], n / (4 * np.pi * bins[1:] ** 2) * N / rho0, color='red')
+        ax.plot(bins[1:], n / (4 * np.pi * bins[1:] ** 2) * N / self.rho0, color='red')
 
         
 
@@ -112,7 +112,7 @@ class Drawer:
         
         # extract histogram statistics
         # density=True: h = d#PE/(#PE dr dtheta)
-        h, xedges, yedges, im = ax.hist2d(pet_polar[:, 0], pet_polar[:, 1], 100, range=[[0, np.pi], [0, Ri]], density=True)
+        h, xedges, yedges, im = ax.hist2d(pet_polar[:, 0], pet_polar[:, 1], 100, range=[[0, np.pi-1e-2], [0, Ri]], density=True)
         ax.cla()
 
         # expand theta from [0, pi] to [0, 2pi]
@@ -127,7 +127,7 @@ class Drawer:
         ax.set_title(r'Heatmap of the Probe Function $Prob(R, \theta)$')
 
         # d#PE/d#Vertices = d#PE/dV * dV/d#Vertices = d#PE/(dV rho0) = d#PE/(2pi r sin(theta) dr dtheta rho0)
-        pcm = ax.pcolormesh(ThetaMesh, RMesh, h_double / (2 * np.pi * RMesh * np.abs(np.sin(ThetaMesh) * rho0) * N_PE), shading='auto', norm=colors.LogNorm())
+        pcm = ax.pcolormesh(ThetaMesh, RMesh, h_double / (2 * np.pi * RMesh * np.abs(np.sin(ThetaMesh)) * self.rho0) * N_PE, shading='auto', norm=colors.LogNorm())
 
         fig.colorbar(pcm, label='Expected Number of PE per Vertex')
         
