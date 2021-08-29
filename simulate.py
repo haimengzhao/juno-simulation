@@ -72,15 +72,22 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     # 初始化所有模拟光线
     phi_num = 100
     theta_num = 100
-    phis, thetas = np.meshgrid(np.linspace(0.00, 2*np.pi, phi_num), np.pi*np.sin(np.linspace(0.00, np.pi, theta_num)))
+    phi = np.linspace(0.01, 2*np.pi, phi_num)
+    theta = np.pi * np.sin(np.linspace(0.01, np.pi, theta_num))
+    phis, thetas = np.meshgrid(phi, theta)
+
     xs = np.full((phi_num, theta_num), x)
     ys = np.full((phi_num, theta_num), y)
     zs = np.full((phi_num, theta_num), z)
+    
+
     vxs = np.cos(thetas) * np.cos(phis)
     vys = np.cos(thetas) * np.sin(phis)
     vzs = np.sin(thetas)
+
     coordinates = np.stack((xs, ys, zs))
     velocities = np.stack((vxs, vys, vzs))
+
     intensities = np.sin(thetas)
 
     # 读取PMT坐标信息
