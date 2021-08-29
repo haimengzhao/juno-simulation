@@ -37,7 +37,7 @@ class Drawer:
 
         # extract histogram statistics
         # density=True: n = dN/(N * dr)
-        n, bins, patches = ax.hist(r, bins=1000, density=True)
+        n, bins, patches = ax.hist(r, bins=50, density=True)
         ax.cla()
 
         # plot
@@ -58,6 +58,7 @@ class Drawer:
         # ax.set_yticklabels(['%.1f' % (2 * i / 5) for i in range(6)])
         
         # density = dN / (4 pi r^2 dr) = n / (4 pi r^2) * N
+        ax.scatter((bins[1:])[n!=0], n[n!=0] / (4 * np.pi * (bins[1:])[n!=0] ** 2) * N / self.rho0, color='red')
         ax.plot(bins[1:], n / (4 * np.pi * bins[1:] ** 2) * N / self.rho0, color='red')
 
         
@@ -112,7 +113,7 @@ class Drawer:
         
         # extract histogram statistics
         # density=True: h = d#PE/(#PE dr dtheta)
-        h, xedges, yedges, im = ax.hist2d(pet_polar[:, 0], pet_polar[:, 1], 100, range=[[0, np.pi-1e-2], [0, Ri]], density=True)
+        h, xedges, yedges, im = ax.hist2d(pet_polar[:, 0], pet_polar[:, 1], 50, range=[[0, np.pi-1e-2], [0, Ri]], density=True)
         ax.cla()
 
         # expand theta from [0, pi] to [0, 2pi]
