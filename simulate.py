@@ -103,7 +103,7 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
           np.sqrt(np.einsum('kij, kij->ij', coordinates * velocities, coordinates * velocities) -\
          (np.einsum('kij, kij->ij', velocities, velocities))*(np.einsum('kij, kij->ij', coordinates, coordinates)-Ri**2))) /\
           np.einsum('kij, kij->ij', velocities, velocities)  #到达液闪边界的时间
-    edge_points = coordinates + np.einsum('ij, kij->ij', ts, velocities)
+    edge_points = coordinates + np.einsum('ij, kij->kij', ts, velocities)
 
     # 计算入射角，出射角
     normal_vectors = edge_points
