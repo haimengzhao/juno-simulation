@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+from scipy.optimize import minimize
 
 # 处理命令行
 parser = argparse.ArgumentParser()
@@ -41,12 +42,24 @@ def generate_events(number_of_events):
     raise NotImplementedError
 
 # TODO: 光学部分
-def get_PE_probability(x, y, z, phi, theta):
+n_water = 1.33
+n_LS = 1.48
+
+def distance(x, y):
+    return np.sqrt(np.sum(np.square(x-y), axis=-1))
+
+def gen_optical_path_func(vertex_coordinate, PMT_coordinate):
+    return lambda y: n_LS*distance(y, vertex_coordinate) +\
+                     n_water*distance(y, PMT_coordinate)
+            
+
+def get_PE_probability(vertices, PMT_phi, PMT_theta):
     '''
-    描述：计算(x, y, z)处产生的光子到达(phi, theta)处PMT的概率
-    输入：x, y, z: 顶点坐标/mm
+    描述：并行计算(x, y, z)处产生的光子到达(phi, theta)处PMT的概率
+    输入：vertices形状为(n, 3)，vertices[i]为第i个顶点的坐标(x, y, z)
+          x, y, z: 顶点坐标/m
           phi, theta: PMT坐标
-    输出：float64类型的概率
+    输出：np.array，每个元素为float64类型的概率
     算法描述：
     1. 计算从(x, y, z)到PMT可能的两条光路：折射/反射+折射
        可能的思路：费马原理？
@@ -54,7 +67,26 @@ def get_PE_probability(x, y, z, phi, theta):
     3. 用菲涅尔公式计算假设光子正好沿着这个方向，真的会这样走的概率
     4. 返回3中概率*(求和 PMT的有效截面/光路总长度^2)/4pi立体角
     '''
-    raise NotImplementedError
+    S = 4*np.pi * 0.508**2
+    PMT_coordinate = 19.5 * np.array([np.sin(PMT_theta)*np.cos(PMT_phi), np.sin(PMT_theta)*np.sin(PMT_phi), np.cos(PMT_theta)])
+    con = {'type':'eq', 'fun':lambda x: np.square(x).sum()-17.71**2}
+    first_try = np.array((0, 0, 17.71))
+
+    # 计算折射点
+    minimize_res = np.apply_along_axis(lambda v: minimize(gen_optical_path_func(v, PMT_coordinate),\
+                                      first_try, constraints=con),\
+                                      -1, vertices)
+
+    edge_points = np.stack(np.frompyfunc(lambda y: y.x, 1, 1)(minimize_res))
+    successes = np.frompyfunc(lambda y: y.success, 1, 1)(minimize_res)
+
+    # 计算每条光路的长度
+    distances = distance(edge_points, vertices) + distance(edge_points, PMT_coordinate)
+
+    # 计算折射系数
+
+    res = S / np.square(distances) / (4*np.pi)
+    return res
 
 # 读入几何文件
 with h5.File(args.geo, "r") as geo:
