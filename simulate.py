@@ -1,12 +1,14 @@
 import argparse
 import numpy as np
+import time
+import random
 
 # 处理命令行
-parser = argparse.ArgumentParser()
-parser.add_argument("-n", dest="n", type=int, help="Number of events")
-parser.add_argument("-g", "--geo", dest="geo", type=str, help="Geometry file")
-parser.add_argument("-o", "--output", dest="opt", type=str, help="Output file")
-args = parser.parse_args()
+# parser = argparse.ArgumentParser()
+# parser.add_argument("-n", dest="n", type=int, help="Number of events")
+# parser.add_argument("-g", "--geo", dest="geo", type=str, help="Geometry file")
+# parser.add_argument("-o", "--output", dest="opt", type=str, help="Output file")
+# args = parser.parse_args()
 
 import h5py as h5
 
@@ -65,8 +67,6 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     数据结构：光子信息由一个(7, phi_num, theta_num)的矩阵表示
     前三个维度为空间坐标，中间三个为速度，最后一个为强度（强度0表示全反射或面积0）
     '''
-    # 读取PMT坐标信息
-    PMT_coordinate = np.array((np.cos(PMT_theta) * np.cos(PMT_phi), np.cos(PMT_theta) * np.sin(PMT_phi), np.sin(PMT_theta)))
 
     # 初始化所有模拟光线
     phi_num = 100
@@ -82,18 +82,25 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     velocities = np.stack((vxs, vys, vzs))
     intensities = np.sin(thetas)
 
+    # 读取PMT坐标信息
+    PMT_coordinate_x = np.cos(PMT_theta) * np.cos(PMT_phi) * np.ones((phi_num, theta_num))
+    PMT_coordinate_y = np.cos(PMT_theta) * np.sin(PMT_phi) * np.ones((phi_num, theta_num))
+    PMT_coordinate_z = np.sin(PMT_theta) * np.ones((phi_num, theta_num))
+    PMT_coordinates = np.stack((PMT_coordinate_x, PMT_coordinate_y, PMT_coordinate_z))
+    
+
     # 求解折射点
-    ts = (-np.sum(coordinates * velocities, axis=-1) +\
-         np.sqrt((coordinates * velocities)**2 - (np.sum(velocities**2, axis=-1))*(np.sum(coordinates**2, axis=-1)-Ri**2))) /\
-         np.sum(velocities**2, axis=-1)  #到达液闪边界的时间
-    edge_points = coordinates + ts*velocities
+    ts = (-np.sum(coordinates * velocities, axis=0) +\
+         np.sqrt(np.sum((coordinates * velocities)**2, axis=0) - (np.sum(velocities**2, axis=0))*(np.sum(coordinates**2, axis=0)-Ri**2))) /\
+         np.sum(velocities**2, axis=0)  #到达液闪边界的时间
+    edge_points = coordinates + np.einsum('ij, kij->ij', ts, velocities)
 
     # 计算入射角，出射角
     normal_vectors = edge_points
     incidence_vectors = edge_points - coordinates
-    incidence_angles = np.einsum('ij, ij->i', normal_vectors, incidence_vectors)  /\
-                       np.sqrt(np.sum(normal_vectors**2, axis=-1))                /\
-                       np.sqrt(np.sum(incidence_vectors**2, axis=-1))
+    incidence_angles = np.einsum('kij, kij->ij', normal_vectors, incidence_vectors)  /\
+                       np.sqrt(np.sum(normal_vectors**2, axis=0))                   /\
+                       np.sqrt(np.sum(incidence_vectors**2, axis=0))
     emergence_angles = np.arcsin(n_LS/n_water * np.sin(incidence_angles))
 
     # 判断全反射
@@ -112,27 +119,38 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     new_velocities = velocities + (np.tan(incidence_angles)/np.tan(emergence_angles) + 1) * lambdas * edge_points
 
     # 判断出射光线能否射中PMT
-    new_ts = np.sum((PMT_coordinate - new_coordinates) * new_velocities, axis=-1) /\
-             np.sum(new_velocities**2, axis=-1)
-    nearest_points = new_coordinates + new_ts*new_velocities
-    distances = np.sum((nearest_points - PMT_coordinate)**2, axis=-1)
+    new_ts = np.sum((PMT_coordinates - new_coordinates) * new_velocities, axis=0) /\
+             np.sum(new_velocities**2, axis=0)
+    nearest_points = new_coordinates + np.einsum('ij, kij->kij', new_ts, new_velocities)
+    distances = np.sum((nearest_points - PMT_coordinates)**2, axis=0)
     final_intensity = new_intensities * (lambda x: x<r_PMT**2)(distances)
 
     # 计算射中期望
     prob = final_intensity.sum() / intensities.sum()
     return prob
 
-# 读入几何文件
-with h5.File(args.geo, "r") as geo:
-    # 只要求模拟17612个PMT
-    PMT_list = geo['Geometry'][:17612]
+ti = time.time()
+for step in range(4000):
+    x = random.random() * 10
+    y = random.random() * 10
+    z = random.random() * 10
+    p = random.random() * np.pi * 2
+    t = random.random() * np.pi
+    get_PE_probability(x, y, z, p, t)
+to = time.time()
+print(to - ti)
 
-# 输出
-with h5.File(args.opt, "w") as opt:
-    # 生成顶点
-    ParticleTruth, PhotonTruth = generate_events(args.n)
+# # 读入几何文件
+# with h5.File(args.geo, "r") as geo:
+#     # 只要求模拟17612个PMT
+#     PMT_list = geo['Geometry'][:17612]
+
+# # 输出
+# with h5.File(args.opt, "w") as opt:
+#     # 生成顶点
+#     ParticleTruth, PhotonTruth = generate_events(args.n)
     
-    opt['ParticleTruth'] = ParticleTruth
+#     opt['ParticleTruth'] = ParticleTruth
 
     
-    print("TODO: Write opt file")
+#     print("TODO: Write opt file")
