@@ -41,7 +41,13 @@ def generate_events(number_of_events):
     raise NotImplementedError
 
 # TODO: 光学部分
-def get_PE_probability(x, y, z, phi, theta):
+n_water = 1.33
+n_LS = 1.48
+Ri = 17.71
+Ro = 19.5
+r_PMT = 0.508
+
+def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     '''
     描述：计算(x, y, z)处产生的光子到达(phi, theta)处PMT的概率
     输入：x, y, z: 顶点坐标/mm
@@ -54,7 +60,67 @@ def get_PE_probability(x, y, z, phi, theta):
     3. 用菲涅尔公式计算假设光子正好沿着这个方向，真的会这样走的概率
     4. 返回3中概率*(求和 PMT的有效截面/光路总长度^2)/4pi立体角
     '''
-    raise NotImplementedError
+    '''
+    shen
+    数据结构：光子信息由一个(7, phi_num, theta_num)的矩阵表示
+    前三个维度为空间坐标，中间三个为速度，最后一个为强度（强度0表示全反射或面积0）
+    '''
+    # 读取PMT坐标信息
+    PMT_coordinate = np.array((np.cos(PMT_theta) * np.cos(PMT_phi), np.cos(PMT_theta) * np.sin(PMT_phi), np.sin(PMT_theta)))
+
+    # 初始化所有模拟光线
+    phi_num = 100
+    theta_num = 100
+    phis, thetas = np.meshgrid(np.linspace(0, 2*np.pi, phi_num), np.linspace(0, np.pi, theta_num))
+    xs = x * np.ones((phi_num, theta_num))
+    ys = y * np.ones((phi_num, theta_num))
+    zs = z * np.ones((phi_num, theta_num))
+    vxs = np.cos(thetas) * np.cos(phis)
+    vys = np.cos(thetas) * np.sin(phis)
+    vzs = np.sin(thetas)
+    coordinates = np.stack((xs, ys, zs))
+    velocities = np.stack((vxs, vys, vzs))
+    intensities = np.sin(thetas)
+
+    # 求解折射点
+    ts = (-np.sum(coordinates * velocities, axis=-1) +\
+         np.sqrt((coordinates * velocities)**2 - (np.sum(velocities**2, axis=-1))*(np.sum(coordinates**2, axis=-1)-Ri**2))) /\
+         np.sum(velocities**2, axis=-1)  #到达液闪边界的时间
+    edge_points = coordinates + ts*velocities
+
+    # 计算入射角，出射角
+    normal_vectors = edge_points
+    incidence_vectors = edge_points - coordinates
+    incidence_angles = np.einsum('ij, ij->i', normal_vectors, incidence_vectors)  /\
+                       np.sqrt(np.sum(normal_vectors**2, axis=-1))                /\
+                       np.sqrt(np.sum(incidence_vectors**2, axis=-1))
+    emergence_angles = np.arcsin(n_LS/n_water * np.sin(incidence_angles))
+
+    # 判断全反射
+    max_incidence_angle = np.arcsin(n_water/n_LS)
+    can_transmit = (lambda x: x<max_incidence_angle)(incidence_angles) * (lambda x: x>=0)(ts)
+
+    # 计算折射系数
+    Rs = np.square(np.sin(emergence_angles - incidence_angles)/np.sin(emergence_angles + incidence_angles))
+    Rp = np.square(np.tan(emergence_angles - incidence_angles)/np.tan(emergence_angles + incidence_angles))
+    T = 1 - (Rs+Rp)/2
+    
+    # 计算出射光
+    new_intensities = intensities * T * can_transmit
+    new_coordinates = edge_points
+    lambdas = velocities / edge_points #法向量需要拉伸的倍数，方便构造出局部平面直角坐标
+    new_velocities = velocities + (np.tan(incidence_angles)/np.tan(emergence_angles) + 1) * lambdas * edge_points
+
+    # 判断出射光线能否射中PMT
+    new_ts = np.sum((PMT_coordinate - new_coordinates) * new_velocities, axis=-1) /\
+             np.sum(new_velocities**2, axis=-1)
+    nearest_points = new_coordinates + new_ts*new_velocities
+    distances = np.sum((nearest_points - PMT_coordinate)**2, axis=-1)
+    final_intensity = new_intensities * (lambda x: x<r_PMT**2)(distances)
+
+    # 计算射中期望
+    prob = final_intensity.sum() / intensities.sum()
+    return prob
 
 # 读入几何文件
 with h5.File(args.geo, "r") as geo:
