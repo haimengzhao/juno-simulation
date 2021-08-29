@@ -72,10 +72,10 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     # 初始化所有模拟光线
     phi_num = 100
     theta_num = 100
-    phis, thetas = np.meshgrid(np.linspace(0.01, 2*np.pi, phi_num), np.linspace(0.01, np.pi, theta_num))
-    xs = x * np.ones((phi_num, theta_num))
-    ys = y * np.ones((phi_num, theta_num))
-    zs = z * np.ones((phi_num, theta_num))
+    phis, thetas = np.meshgrid(np.linspace(0.00, 2*np.pi, phi_num), np.pi*np.sin(np.linspace(0.00, np.pi, theta_num)))
+    xs = np.full((phi_num, theta_num), x)
+    ys = np.full((phi_num, theta_num), y)
+    zs = np.full((phi_num, theta_num), z)
     vxs = np.cos(thetas) * np.cos(phis)
     vys = np.cos(thetas) * np.sin(phis)
     vzs = np.sin(thetas)
@@ -84,10 +84,11 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     intensities = np.sin(thetas)
 
     # 读取PMT坐标信息
-    PMT_coordinate_x = np.cos(PMT_theta) * np.cos(PMT_phi) * np.ones((phi_num, theta_num))
-    PMT_coordinate_y = np.cos(PMT_theta) * np.sin(PMT_phi) * np.ones((phi_num, theta_num))
-    PMT_coordinate_z = np.sin(PMT_theta) * np.ones((phi_num, theta_num))
+    PMT_coordinate_x = np.full((phi_num, theta_num), np.cos(PMT_theta) * np.cos(PMT_phi))
+    PMT_coordinate_y = np.full((phi_num, theta_num), np.cos(PMT_theta) * np.sin(PMT_phi))
+    PMT_coordinate_z = np.full((phi_num, theta_num), np.sin(PMT_theta))
     PMT_coordinates = np.stack((PMT_coordinate_x, PMT_coordinate_y, PMT_coordinate_z))
+
     
 
     # 求解折射点
@@ -100,8 +101,8 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     # 计算入射角，出射角
     normal_vectors = edge_points
     incidence_vectors = edge_points - coordinates
-    incidence_angles = np.einsum('kij, kij->ij', normal_vectors, incidence_vectors)  /\
-                       np.sqrt(np.einsum('kij, kij->ij', normal_vectors, normal_vectors))                   /\
+    incidence_angles = np.einsum('kij, kij->ij', normal_vectors, incidence_vectors)              /\
+                       np.sqrt(np.einsum('kij, kij->ij', normal_vectors, normal_vectors))        /\
                        np.sqrt(np.einsum('kij, kij->ij', incidence_vectors, incidence_vectors))
     emergence_angles = np.arcsin(n_LS/n_water * np.sin(incidence_angles))
     
@@ -116,10 +117,10 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     T = 1 - (Rs+Rp)/2
     
     # 计算出射光
-    new_intensities = intensities * T * can_transmit
+    new_intensities = np.einsum('ij, ij, ij->ij', intensities, T, can_transmit)
     new_coordinates = edge_points
-    lambdas = velocities / edge_points #法向量需要拉伸的倍数，方便构造出局部平面直角坐标
-    new_velocities = velocities + (np.tan(incidence_angles)/np.tan(emergence_angles) + 1) * lambdas * edge_points
+    lambdas = np.einsum('kij->ij', (velocities/edge_points)**2) #法向量需要拉伸的倍数，方便构造出局部平面直角坐标
+    new_velocities = velocities + np.einsum('ij, ij, kij->kij', np.tan(incidence_angles)/np.tan(emergence_angles)+1, np.sqrt(lambdas), edge_points)
 
     # 判断出射光线能否射中PMT
     new_ts = np.einsum('kij, kij->ij', PMT_coordinates - new_coordinates, new_velocities) /\
@@ -133,14 +134,15 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     return prob
 
 # benchmark
+x = np.random.rand(4000) * 10
+y = np.random.rand(4000) * 10
+z = np.random.rand(4000) * 10
+p = np.random.rand(4000) * np.pi * 2
+t = np.random.rand(4000) * np.pi 
+
 ti = time()
 for step in range(4000):
-    x = random() * 10
-    y = random() * 10
-    z = random() * 10
-    p = random() * np.pi * 2
-    t = random() * np.pi  
-    get_PE_probability(x,y,z,p,t)
+    get_PE_probability(x[step],y[step],z[step],p[step],t[step])
 to = time()
 print(to - ti)
 
