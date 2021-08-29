@@ -84,8 +84,16 @@ def get_PE_probability(vertices, PMT_phi, PMT_theta):
     distances = distance(edge_points, vertices) + distance(edge_points, PMT_coordinate)
 
     # 计算折射系数
+    normal_vectors = -edge_points
+    incidence_vectors = edge_points - vertices
+    incidence_angles = np.einsum('ij, ij->i', normal_vectors, incidence_vectors) /\
+                         np.apply_along_axis(np.linalg.norm, -1, normal_vectors) / np.apply_along_axis(np.linalg.norm, -1, incidence_vectors)
+    emergence_angles = np.arcsin(n_LS/n_water * np.sin(incidence_angles))
+    Rs = np.square(np.sin(emergence_angles - incidence_angles)/np.sin(emergence_angles + incidence_angles))
+    Rp = np.square(np.tan(emergence_angles - incidence_angles)/np.tan(emergence_angles + incidence_angles))
+    T = 1 - (Rs+Rp)/2
 
-    res = S / np.square(distances) / (4*np.pi)
+    res = S * successes * T / np.square(distances) / (4*np.pi)
     return res
 
 # 读入几何文件
