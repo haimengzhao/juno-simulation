@@ -1,14 +1,13 @@
 import argparse
 import numpy as np
-import time
-import random
+
 
 # 处理命令行
-# parser = argparse.ArgumentParser()
-# parser.add_argument("-n", dest="n", type=int, help="Number of events")
-# parser.add_argument("-g", "--geo", dest="geo", type=str, help="Geometry file")
-# parser.add_argument("-o", "--output", dest="opt", type=str, help="Output file")
-# args = parser.parse_args()
+parser = argparse.ArgumentParser()
+parser.add_argument("-n", dest="n", type=int, help="Number of events")
+parser.add_argument("-g", "--geo", dest="geo", type=str, help="Geometry file")
+parser.add_argument("-o", "--output", dest="opt", type=str, help="Output file")
+args = parser.parse_args()
 
 import h5py as h5
 
@@ -129,28 +128,18 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     prob = final_intensity.sum() / intensities.sum()
     return prob
 
-ti = time.time()
-for step in range(4000):
-    x = random.random() * 10
-    y = random.random() * 10
-    z = random.random() * 10
-    p = random.random() * np.pi * 2
-    t = random.random() * np.pi
-    get_PE_probability(x, y, z, p, t)
-to = time.time()
-print(to - ti)
 
-# # 读入几何文件
-# with h5.File(args.geo, "r") as geo:
-#     # 只要求模拟17612个PMT
-#     PMT_list = geo['Geometry'][:17612]
+# 读入几何文件
+with h5.File(args.geo, "r") as geo:
+    # 只要求模拟17612个PMT
+    PMT_list = geo['Geometry'][:17612]
 
-# # 输出
-# with h5.File(args.opt, "w") as opt:
-#     # 生成顶点
-#     ParticleTruth, PhotonTruth = generate_events(args.n)
+# 输出
+with h5.File(args.opt, "w") as opt:
+    # 生成顶点
+    ParticleTruth, PhotonTruth = generate_events(args.n)
     
-#     opt['ParticleTruth'] = ParticleTruth
+    opt['ParticleTruth'] = ParticleTruth
 
     
-#     print("TODO: Write opt file")
+    print("TODO: Write opt file")
