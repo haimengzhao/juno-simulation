@@ -1,7 +1,8 @@
 import argparse
 import numpy as np
 from time import time
-import timeit
+import multiprocessing 
+
 
 
 # 处理命令行
@@ -50,6 +51,7 @@ Ri = 17.71
 Ro = 19.5
 r_PMT = 0.508
 
+
 def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     '''
     描述：计算(x, y, z)处产生的光子到达(phi, theta)处PMT的概率
@@ -74,22 +76,21 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     theta_num = 1000
     phi = np.linspace(1/phi_num, 2*np.pi, phi_num)
     theta = np.linspace(1/theta_num, np.pi, theta_num)
-    phis, thetas = np.meshgrid(phi, theta)
 
     xs = np.full((phi_num, theta_num), x)
     ys = np.full((phi_num, theta_num), y)
     zs = np.full((phi_num, theta_num), z)
     
 
-    vxs = np.sin(thetas) * np.cos(phis)
-    vys = np.sin(thetas) * np.sin(phis)
-    vzs = np.cos(thetas)
+    vxs = np.sin(theta) * np.cos(phi).reshape(phi_num, 1)
+    vys = np.sin(theta) * np.sin(phi).reshape(phi_num, 1)
+    vzs = np.cos(theta) * np.ones((phi_num, 1))
 
     coordinates = np.stack((xs, ys, zs))
     velocities = np.stack((vxs, vys, vzs))
 
 
-    intensities = np.sin(thetas)
+    intensities = np.sin(theta) * np.ones((phi_num, 1))
 
     # 读取PMT坐标信息
     PMT_coordinate_x = np.full((phi_num, theta_num), Ro * np.sin(PMT_theta) * np.cos(PMT_phi))
@@ -150,12 +151,13 @@ z = np.random.rand(4000) * 10
 p = np.random.rand(4000) * np.pi * 2
 t = np.random.rand(4000) * np.pi 
 
-
+pool = multiprocessing.Pool(processes=8)
 ti = time()
-# for step in range(4000):
-#   get_PE_probability(x[step],y[step],z[step],p[step],t[step])
-
-get_PE_probability(0,0,0,0,0)
+for step in range(4000):
+  pool.apply_async(get_PE_probability, (x[step], y[step], z[step], p[step], t[step]))
+#get_PE_probability(0,0,0,0,0)
+pool.close()
+pool.join()
 to = time()
 print(to-ti)
 
