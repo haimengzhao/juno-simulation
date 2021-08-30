@@ -1,13 +1,15 @@
 import argparse
+from operator import ge
 import numpy as np
 from scipy.optimize import minimize
+from time import time
 
 # 处理命令行
-parser = argparse.ArgumentParser()
-parser.add_argument("-n", dest="n", type=int, help="Number of events")
-parser.add_argument("-g", "--geo", dest="geo", type=str, help="Geometry file")
-parser.add_argument("-o", "--output", dest="opt", type=str, help="Output file")
-args = parser.parse_args()
+# parser = argparse.ArgumentParser()
+# parser.add_argument("-n", dest="n", type=int, help="Number of events")
+# parser.add_argument("-g", "--geo", dest="geo", type=str, help="Geometry file")
+# parser.add_argument("-o", "--output", dest="opt", type=str, help="Output file")
+# args = parser.parse_args()
 
 import h5py as h5
 
@@ -101,17 +103,28 @@ def get_PE_probability(vertices, PMT_phi, PMT_theta):
     res = S * successes * T / np.square(distances) / (4*np.pi)
     return res
 
-# 读入几何文件
-with h5.File(args.geo, "r") as geo:
-    # 只要求模拟17612个PMT
-    PMT_list = geo['Geometry'][:17612]
+x = np.random.random(4000) * 10
+y = np.random.random(4000) * 10
+z = np.random.random(4000) * 10
+p = np.random.random(4000) * np.pi * 2
+t = np.random.random(4000) * np.pi
+vertices = np.stack((x,y,z), axis=-1)
+ti = time()
+get_PE_probability(vertices, p[0], t[0])
+to = time()
+print(to-ti)
 
-# 输出
-with h5.File(args.opt, "w") as opt:
-    # 生成顶点
-    ParticleTruth, PhotonTruth = generate_events(args.n)
+# # 读入几何文件
+# with h5.File(args.geo, "r") as geo:
+#     # 只要求模拟17612个PMT
+#     PMT_list = geo['Geometry'][:17612]
+
+# # 输出
+# with h5.File(args.opt, "w") as opt:
+#     # 生成顶点
+#     ParticleTruth, PhotonTruth = generate_events(args.n)
     
-    opt['ParticleTruth'] = ParticleTruth
+#     opt['ParticleTruth'] = ParticleTruth
 
     
-    print("TODO: Write opt file")
+    # print("TODO: Write opt file")
