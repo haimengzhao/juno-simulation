@@ -1,7 +1,7 @@
 import argparse
 import numpy as np
 from time import time
-from random import random
+import timeit
 
 
 # 处理命令行
@@ -70,10 +70,10 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     '''
 
     # 初始化所有模拟光线
-    phi_num = 100
-    theta_num = 100
-    phi = np.linspace(0.01, 2*np.pi, phi_num)
-    theta = np.linspace(0.01, np.pi, theta_num)
+    phi_num = 1000
+    theta_num = 1000
+    phi = np.linspace(1/phi_num, 2*np.pi, phi_num)
+    theta = np.linspace(1/theta_num, np.pi, theta_num)
     phis, thetas = np.meshgrid(phi, theta)
 
     xs = np.full((phi_num, theta_num), x)
@@ -81,29 +81,31 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     zs = np.full((phi_num, theta_num), z)
     
 
-    vxs = np.cos(thetas) * np.cos(phis)
-    vys = np.cos(thetas) * np.sin(phis)
-    vzs = np.sin(thetas)
+    vxs = np.sin(thetas) * np.cos(phis)
+    vys = np.sin(thetas) * np.sin(phis)
+    vzs = np.cos(thetas)
 
     coordinates = np.stack((xs, ys, zs))
     velocities = np.stack((vxs, vys, vzs))
 
+
     intensities = np.sin(thetas)
 
     # 读取PMT坐标信息
-    PMT_coordinate_x = np.full((phi_num, theta_num), np.cos(PMT_theta) * np.cos(PMT_phi))
-    PMT_coordinate_y = np.full((phi_num, theta_num), np.cos(PMT_theta) * np.sin(PMT_phi))
-    PMT_coordinate_z = np.full((phi_num, theta_num), np.sin(PMT_theta))
+    PMT_coordinate_x = np.full((phi_num, theta_num), Ro * np.sin(PMT_theta) * np.cos(PMT_phi))
+    PMT_coordinate_y = np.full((phi_num, theta_num), Ro * np.sin(PMT_theta) * np.sin(PMT_phi))
+    PMT_coordinate_z = np.full((phi_num, theta_num), Ro * np.cos(PMT_theta))
     PMT_coordinates = np.stack((PMT_coordinate_x, PMT_coordinate_y, PMT_coordinate_z))
 
     
 
     # 求解折射点
     ts = (-np.einsum('kij, kij->ij', coordinates, velocities) +\
-          np.sqrt(np.einsum('kij, kij->ij', coordinates * velocities, coordinates * velocities) -\
-         (np.einsum('kij, kij->ij', velocities, velocities))*(np.einsum('kij, kij->ij', coordinates, coordinates)-Ri**2))) /\
+          np.sqrt(np.einsum('kij, kij, pij, pij->ij', coordinates, velocities, coordinates, velocities) -\
+          np.einsum('kij, kij->ij', velocities, velocities) * (np.einsum('kij, kij->ij', coordinates, coordinates)-Ri**2))) /\
           np.einsum('kij, kij->ij', velocities, velocities)  #到达液闪边界的时间
     edge_points = coordinates + np.einsum('ij, kij->kij', ts, velocities)
+    
 
     # 计算入射角，出射角
     normal_vectors = edge_points
@@ -134,10 +136,11 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
              np.einsum('kij, kij->ij', new_velocities, new_velocities)
     nearest_points = new_coordinates + np.einsum('ij, kij->kij', new_ts, new_velocities)
     distances = np.einsum('kij, kij->ij', nearest_points - PMT_coordinates, nearest_points - PMT_coordinates)
-    final_intensity = new_intensities * (lambda x: x<r_PMT**2)(distances)
+    final_intensity = new_intensities * (lambda x: x<=r_PMT**2)(distances) * (lambda x: x>=0)(new_ts)
 
     # 计算射中期望
     prob = np.einsum('ij->', final_intensity) / np.einsum('ij->', intensities)
+    print(prob)
     return prob
 
 # benchmark
@@ -147,11 +150,14 @@ z = np.random.rand(4000) * 10
 p = np.random.rand(4000) * np.pi * 2
 t = np.random.rand(4000) * np.pi 
 
+
 ti = time()
-for step in range(4000):
-    get_PE_probability(x[step],y[step],z[step],p[step],t[step])
+# for step in range(4000):
+#   get_PE_probability(x[step],y[step],z[step],p[step],t[step])
+
+get_PE_probability(0,0,0,0,0)
 to = time()
-print(to - ti)
+print(to-ti)
 
 # 读入几何文件
 # with h5.File(args.geo, "r") as geo:
