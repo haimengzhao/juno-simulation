@@ -73,7 +73,7 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     phi_num = 100
     theta_num = 100
     phi = np.linspace(0.01, 2*np.pi, phi_num)
-    theta = np.pi * np.sin(np.linspace(0.01, np.pi, theta_num))
+    theta = np.linspace(0.01, np.pi, theta_num)
     phis, thetas = np.meshgrid(phi, theta)
 
     xs = np.full((phi_num, theta_num), x)
