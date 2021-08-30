@@ -156,17 +156,23 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     d_max = 1
     allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
     valid_index = np.where(allowed_lights)[0]
-    print(allowed_lights.sum())
+    allow_num = allowed_lights.sum() #如果大于400， 则说明顶点与PMT非常接近
+    print(f'allowed = {allow_num}')
     allowed_thetas = try_thetas[valid_index]
     theta_min = allowed_thetas.min()
     theta_max = allowed_thetas.max()
     
     phi_start, phi_end = 0, 2*np.pi
     theta_start = theta_min if theta_min>0.1 else 0.0001
-    theta_end = theta_max if (2*np.pi - theta_max)>0.1 else 2*np.pi-0.0001
+    theta_end = theta_max if (2*np.pi - theta_max)>0.1 else np.pi-0.0001
+    if theta_start>0.1 and allow_num>100 and z>0:       # 修正特别贴近的情况
+        theta_start = 0.0001
+    if (2*np.pi - theta_max)>0.1 and allow_num>100 and z<0:
+        theta_end = np.pi-0.0001
+
     Omega = (np.cos(theta_start) - np.cos(theta_end)) * 2 * np.pi
-    #print(theta_end- theta_start)
-    #print(f'Omega = {Omega}')
+    print([theta_end, theta_start])
+    print(f'Omega = {Omega}')
 
     # Step3: 在小区域中选择光线
     dense_phi_num = 2000
@@ -185,22 +191,24 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     hit_PMT_num = np.einsum('n, n->n', (lambda x: x>0)(dense_distances), (lambda x: x<r_PMT)(dense_distances))
     all_intensity = np.einsum('n, n->', dense_new_intensities, hit_PMT_num)
     ratio = all_intensity / (dense_phi_num*dense_theta_num)
-    #print(f'ratio = {ratio}')
+    print(f'ratio = {ratio}')
 
     prob = ratio * Omega / (4*np.pi)
-    #print(f'prob = {prob}')
+    print(f'prob = {prob}')
     return prob
 
 x = np.random.rand(4000) * 10
 y = np.random.rand(4000) * 10
 z = np.random.rand(4000) * 10
-pool = multiprocessing.Pool(processes=8)
 ti = time()
-for step in range(4000):
-    pool.apply_async(get_PE_probability, (x[step], y[step], z[step], 0, 0))
-#get_PE_probability(0,0,0.1,0,0)
-pool.close()
-pool.join()
+# pool = multiprocessing.Pool(processes=8)
+
+# for step in range(4000):
+#     pool.apply_async(get_PE_probability, (x[step], y[step], z[step], 0, 0))
+
+# pool.close()
+# pool.join()
+get_PE_probability(3,6,10,0,0)
 to = time()
 print(f'time = {to-ti}')
 # # 读入几何文件
