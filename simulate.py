@@ -45,6 +45,7 @@ def generate_events(number_of_events):
 # TODO: 光学部分
 n_water = 1.33
 n_LS = 1.48
+n_glass = 1.5
 eta = n_LS / n_water
 Ri = 17.71
 Ro = 19.5
@@ -128,6 +129,31 @@ def gen_velocities(phis, thetas):
     return velocities
 
 
+def hit_PMT_intensity(coordinates, velocities, intensities, PMT_coordinates):
+    distances = distance(coordinates, velocities, PMT_coordinates)
+    hit_PMT = np.einsum('n, n->n', (lambda x: x>0)(distances), (lambda x: x<r_PMT)(distances))
+    allowed_index = np.where(hit_PMT)[0]
+    allowed_coordinates = coordinates[:, allowed_index]
+    allowed_velocities = velocities[:, allowed_index]
+    allowed_intensities = intensities[allowed_index]
+    allowed_PMT_coordinates = PMT_coordinates[:, :allowed_index.shape[0]]
+    # Bonus: 考虑PMT表面的反射
+    edge2PMT = allowed_PMT_coordinates - allowed_coordinates
+    norm2PMT = np.sqrt(np.einsum('kn, kn->n', edge2PMT, edge2PMT))
+    # 用正弦定理计算入射角
+    phis = np.arccos(np.sqrt(np.einsum('kn, kn->n', allowed_velocities, edge2PMT) / norm2PMT))
+    incidence_angles = np.arcsin(np.einsum('n, n->n', norm2PMT, np.sin(phis))/r_PMT)
+    emergence_angles = np.arcsin(n_water/n_glass * np.sin(incidence_angles))
+    Rs = np.square(np.sin(emergence_angles - incidence_angles)/np.sin(emergence_angles + incidence_angles))
+    Rp = np.square(np.tan(emergence_angles - incidence_angles)/np.tan(emergence_angles + incidence_angles))
+    R = (Rs+Rp)/2
+    T = 1 - R
+
+    all_intensity = np.einsum('n, n->', allowed_intensities, T)
+
+    return all_intensity
+
+
 try_num = 20000
 try_phis = np.random.rand(try_num) * 2 * np.pi
 try_thetas = np.arccos(np.random.rand(try_num)*2 - 1)
@@ -138,7 +164,7 @@ vzs = np.cos(try_thetas)
 try_velocities = np.stack((vxs, vys, vzs))
 try_intensities = np.ones(try_num)
 
-def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
+def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
     # Step0： 将PMT转到(pi, pi/2)处
     if PMT_phi != np.pi or PMT_theta != np.pi/2:
         Rz = np.array([[-np.cos(PMT_phi), -np.sin(PMT_phi), 0],
@@ -164,7 +190,7 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
 
     vertex2PMT = np.sqrt((x-PMT_x)**2+(y-PMT_y)**2+(z-PMT_z)**2)
     d_min = 0.510
-    d_max = 0.8 + vertex2PMT*0.03
+    d_max = 0.8 + vertex2PMT*0.04
     allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
     valid_index = np.where(allowed_lights)[0]
     allow_num = valid_index.shape[0] #如果大于400， 则说明顶点与PMT非常接近
@@ -203,11 +229,10 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     # Step4: 判断哪些光线能够到达PMT
     dense_new_coordinates, dense_new_velocities, dense_new_intensities = transist(dense_coordinates, dense_velocities, dense_intensities)[:3]
     dense_PMT_coordinates = gen_coordinates(dense_phi_num*dense_theta_num, PMT_x, PMT_y, PMT_z)
-    dense_distances = distance(dense_new_coordinates, dense_new_velocities, dense_PMT_coordinates)
-    hit_PMT_num = np.einsum('n, n->n', (lambda x: x>0)(dense_distances), (lambda x: x<r_PMT)(dense_distances))
-    print(f'hit num = {hit_PMT_num.sum()}')
-    all_intensity = np.einsum('n, n->', dense_new_intensities, hit_PMT_num)
+    
+    all_intensity = hit_PMT_intensity(dense_new_coordinates, dense_new_velocities, dense_new_intensities, dense_PMT_coordinates)
     ratio = all_intensity / (dense_phi_num*dense_theta_num)
+    print(f'ratio = {ratio}')
     print(f'ratio = {ratio}')
 
     prob = ratio * Omega / (4*np.pi)
@@ -221,11 +246,11 @@ ti = time()
 # pool = multiprocessing.Pool(processes=8)
 
 # for step in range(4000):
-#     pool.apply_async(get_PE_probability, (x[step], y[step], z[step], 0, 0))
+#     s = pool.apply_async(get_PE_probability, (x[step], y[step], z[step], 0, 0))
 
 # pool.close()
 # pool.join()
-get_PE_probability(0,0,16,0,0)
+get_PE_probability(3,6,10,0,0)
 to = time()
 print(f'time = {to-ti}')
 # # 读入几何文件
