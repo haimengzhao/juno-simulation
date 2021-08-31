@@ -67,7 +67,7 @@ def transist(coordinates, velocities, intensities, need_reflect=False):
     # 计算入射角，出射角
     normal_vectors = -edge_points / Ri
     incidence_vectors = velocities
-    vertical_of_incidence = np.einsum('kn, kn->n', incidence_vectors, normal_vectors)
+    vertical_of_incidence = np.clip(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1, 1)
     incidence_angles = np.arccos(-vertical_of_incidence)
     
     
@@ -87,7 +87,7 @@ def transist(coordinates, velocities, intensities, need_reflect=False):
     new_coordinates = edge_points
 
     # 计算折射系数
-    emergence_angles = np.arccos(np.einsum('kn, kn->n', new_velocities, -normal_vectors))
+    emergence_angles = np.arccos(np.clip(np.einsum('kn, kn->n', new_velocities, -normal_vectors), -1, 1))
     Rs = np.square(np.sin(emergence_angles - incidence_angles)/np.sin(emergence_angles + incidence_angles))
     Rp = np.square(np.tan(emergence_angles - incidence_angles)/np.tan(emergence_angles + incidence_angles))
     R = (Rs+Rp)/2
@@ -139,6 +139,16 @@ try_velocities = np.stack((vxs, vys, vzs))
 try_intensities = np.ones(try_num)
 
 def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
+    # Step0： 将PMT转到(pi, pi/2)处
+    if PMT_phi != np.pi or PMT_theta != np.pi/2:
+        Rz = np.array([[-np.cos(PMT_phi), -np.sin(PMT_phi), 0],
+                       [ np.sin(PMT_phi), -np.cos(PMT_phi), 0],
+                       [               0,                0, 1]])
+        Ry = np.array([[np.sin(PMT_theta), 0, -np.cos(PMT_theta)],
+                       [                0, 1,                  0],
+                       [np.cos(PMT_theta), 0,  np.sin(PMT_theta)]])
+        nx, ny, nz = Ry @ Rz @ np.array((x, y, z))
+        return get_PE_probability(nx, ny, nz, np.pi, np.pi/2)
     # 读取PMT坐标信息
     PMT_x = Ro * np.sin(PMT_theta) * np.cos(PMT_phi)
     PMT_y = Ro * np.sin(PMT_theta) * np.sin(PMT_phi)
@@ -156,27 +166,32 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     d_max = 1
     allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
     valid_index = np.where(allowed_lights)[0]
-    allow_num = allowed_lights.sum() #如果大于400， 则说明顶点与PMT非常接近
+    allow_num = valid_index.shape[0] #如果大于400， 则说明顶点与PMT非常接近
     print(f'allowed = {allow_num}')
+    allowed_phis = try_phis[valid_index]
+    phi_start = allowed_phis.min()
+    phi_end = allowed_phis.max()
     allowed_thetas = try_thetas[valid_index]
-    theta_min = allowed_thetas.min()
-    theta_max = allowed_thetas.max()
+    theta_start = allowed_thetas.min()
+    theta_end = allowed_thetas.max()
     
-    phi_start, phi_end = 0, 2*np.pi
-    theta_start = theta_min if theta_min>0.1 else 0.0001
-    theta_end = theta_max if (2*np.pi - theta_max)>0.1 else np.pi-0.0001
-    if theta_start>0.1 and allow_num>100 and z>0:       # 修正特别贴近的情况
-        theta_start = 0.0001
-    if (2*np.pi - theta_max)>0.1 and allow_num>100 and z<0:
-        theta_end = np.pi-0.0001
+    
+    # phi_start, phi_end = 0, 2*np.pi
+    # theta_start = theta_min if theta_min>0.1 else 0.0001
+    # theta_end = theta_max if (2*np.pi - theta_max)>0.1 else np.pi-0.0001
+    # if theta_start>0.1 and allow_num>100 and z>0:       # 修正特别贴近的情况
+    #     theta_start = 0.0001
+    # if (2*np.pi - theta_max)>0.1 and allow_num>100 and z<0:
+    #     theta_end = np.pi-0.0001
 
-    Omega = (np.cos(theta_start) - np.cos(theta_end)) * 2 * np.pi
-    print([theta_end, theta_start])
+    Omega = (np.cos(theta_start) - np.cos(theta_end)) * (phi_end - phi_start)
+    print(f'phi in {[phi_start, phi_end]}')
+    print(f'theta in {[theta_start, theta_end]}')
     print(f'Omega = {Omega}')
 
     # Step3: 在小区域中选择光线
-    dense_phi_num = 2000
-    dense_theta_num = 100
+    dense_phi_num = 500
+    dense_theta_num = 500
     dense_phis = np.linspace(phi_start, phi_end, dense_phi_num)
     dense_thetas = np.arccos(np.linspace(np.cos(theta_start), np.cos(theta_end), dense_theta_num))
 
@@ -189,6 +204,7 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     dense_PMT_coordinates = gen_coordinates(dense_phi_num*dense_theta_num, PMT_x, PMT_y, PMT_z)
     dense_distances = distance(dense_new_coordinates, dense_new_velocities, dense_PMT_coordinates)
     hit_PMT_num = np.einsum('n, n->n', (lambda x: x>0)(dense_distances), (lambda x: x<r_PMT)(dense_distances))
+    print(f'hit num = {hit_PMT_num.sum()}')
     all_intensity = np.einsum('n, n->', dense_new_intensities, hit_PMT_num)
     ratio = all_intensity / (dense_phi_num*dense_theta_num)
     print(f'ratio = {ratio}')
