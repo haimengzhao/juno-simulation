@@ -162,8 +162,9 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta):
     try_PMT_coordinates = gen_coordinates(try_num, PMT_x, PMT_y, PMT_z)
     try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
 
+    vertex2PMT = np.sqrt((x-PMT_x)**2+(y-PMT_y)**2+(z-PMT_z)**2)
     d_min = 0.510
-    d_max = 1
+    d_max = 0.8 + vertex2PMT*0.03
     allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
     valid_index = np.where(allowed_lights)[0]
     allow_num = valid_index.shape[0] #如果大于400， 则说明顶点与PMT非常接近
@@ -224,7 +225,7 @@ ti = time()
 
 # pool.close()
 # pool.join()
-get_PE_probability(3,6,10,0,0)
+get_PE_probability(0,0,16,0,0)
 to = time()
 print(f'time = {to-ti}')
 # # 读入几何文件
