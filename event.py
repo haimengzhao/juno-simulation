@@ -21,7 +21,30 @@ def expectation(t):
 
 def generate_events(number_of_events):
     '''
-    文档见simulate.py
+    描述：生成事例
+    输入：number_of_events: event数量
+    输出：ParticleTruth，PhotonTruth两个结构化数组
+          ParticleTruth形状为(number_of_events, 5)，具有字段：
+            EventID: 事件编号        '<i4'
+            x:       顶点坐标x/mm    '<f8'
+            y:       顶点坐标y/mm    '<f8'
+            z:       顶点坐标z/mm    '<f8'
+            p:       顶点动量/MeV    '<f8'
+          Photons形状为(不定, 3)，具有字段:
+            EventID:  事件编号                       '<i4'
+            PhotonID: 光子编号（每个事件单独编号）   '<i4'
+            GenTime:  从顶点产生到光子产生的时间/ns  '<f8'
+    算法描述：
+    1. 生成顶点坐标(x, y, z)
+       方法：生成球坐标，r用一个与r^2成正比的采样函数
+                         theta和phi均匀分布
+             转为xyz
+    2. 生成光子数目与GenTime
+       方法：先算出卷积后的lambda(t), 得到其最大值lambda*
+             定义截止时间，将截止时间内产生的光子作为总共的光子
+             用lambda*的齐次泊松分布模拟截止时间内的光子事件
+             筛选事件，有lambda(t)/lambda*的可能性事件留下
+    3. 转化为输出格式输出
     '''
     
     # 初始化expectation
@@ -47,6 +70,23 @@ def generate_events(number_of_events):
         ).transpose()
     print("event位置生成完成！")
 
+    # 生成ParticleTruth
+    par_tr_dtype = [
+        ('EventID', '<i4'),
+        ('x', '<f8'),
+        ('y', '<f8'),
+        ('z', '<f8'),
+        ('p', '<f8')
+    ]
+    Particle_Truth = np.array(list(zip(
+        np.arange(number_of_events),
+        event_coordinates[:, 0]*1000,
+        event_coordinates[:, 1]*1000,
+        event_coordinates[:, 2]*1000,
+        np.zeros(number_of_events) + 1
+    )), dtype=par_tr_dtype)
+    print("Particle_Truth表生成完成！")
+
     # 生成光子，先用齐次泊松分布，再用expectation来thin
     print("生成光子中...")
     photon_counts = np.round(
@@ -56,7 +96,10 @@ def generate_events(number_of_events):
     for photon_count in photon_counts:
         gen_time = np.sort(rng.random(photon_count) * T_MAX)
         expe_vec = np.vectorize(expectation)
-        gen_time = gen_time[rng.random(dtype=np.float32) < expect_list[gen_time.astype(int)*PRECISION]/expect_list[0]]
+        gen_time = gen_time[
+            rng.random(dtype=np.float32) < 
+            expect_list[gen_time.astype(int)*PRECISION]/expect_list[0]
+        ]
         gen_times.append(gen_time)
     
     print("生成完成！")
