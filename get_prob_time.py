@@ -171,7 +171,7 @@ def get_first(x, y, z, PMT_phi, PMT_theta):
     try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
     vertex2PMT = np.sqrt((x-PMT_x)**2+(y-PMT_y)**2+(z-PMT_z)**2)
     d_min = 0.510
-    d_max = 0.8 + vertex2PMT*0.04
+    d_max = 1.8 + vertex2PMT*0.04
     allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
     valid_index = np.where(allowed_lights)[0]
     #print(f'allowed = {allow_num}')
@@ -236,7 +236,7 @@ def get_second(x, y, z, PMT_phi, PMT_theta):
     try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
     vertex2PMT = np.sqrt((x-PMT_x)**2+(y-PMT_y)**2+(z-PMT_z)**2)
     d_min = 0.510
-    d_max = 3 - vertex2PMT*0.04
+    d_max = 3.5 - vertex2PMT*0.04
     allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
     valid_index = np.where(allowed_lights)[0]
     # print(f'allowed = {valid_index.shape[0]}')
@@ -253,8 +253,8 @@ def get_second(x, y, z, PMT_phi, PMT_theta):
     # print(f'Omega = {Omega}')
     
     # Step3: 在小区域中选择光线
-    dense_phi_num = 200
-    dense_theta_num = 200
+    dense_phi_num = 100
+    dense_theta_num = 100
     dense_phis = np.linspace(phi_start, phi_end, dense_phi_num)
     dense_thetas = np.arccos(np.linspace(np.cos(theta_start), np.cos(theta_end), dense_theta_num))
 
@@ -308,6 +308,6 @@ ti = time()
 
 # pool.close()
 # pool.join()
-get_PE_time_distribution(0,0,0.2,0,0)
+print(get_PE_probability(0,0,6,0,0))
 to = time()
 print(f'time = {to-ti}')
