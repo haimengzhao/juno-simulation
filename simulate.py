@@ -50,9 +50,10 @@ eta = n_LS / n_water
 Ri = 17.71
 Ro = 19.5
 r_PMT = 0.508
+c = 3e8
 
 
-def transist(coordinates, velocities, intensities, need_reflect=False):
+def transist(coordinates, velocities, intensities, times, need_reflect=False):
     '''
     coordinates: (3,n)
     velocities: (3,n)，其中每个速度矢量都已经归一化
@@ -60,10 +61,12 @@ def transist(coordinates, velocities, intensities, need_reflect=False):
     '''
     # 求解折射点
     ts = (-np.einsum('kn, kn->n', coordinates, velocities) +\
-          np.sqrt(np.einsum('kn, kn, pn, pn->n', coordinates, velocities, coordinates, velocities) -\
-          np.einsum('kn, kn->n', velocities, velocities) * (np.einsum('kn, kn->n', coordinates, coordinates)-Ri**2))) /\
-          np.einsum('kn, kn->n', velocities, velocities)  #到达液闪边界的时间
+           np.sqrt(np.einsum('kn, kn, pn, pn->n', coordinates, velocities, coordinates, velocities) -\
+          (np.einsum('kn, kn->n', coordinates, coordinates)-Ri**2)))     #到达液闪边界的时间
     edge_points = coordinates + np.einsum('n, kn->kn', ts, velocities)
+    
+    # 计算增加的时间
+    new_times = times + ts/c*n_LS
 
     # 计算入射角，出射角
     normal_vectors = -edge_points / Ri
@@ -99,7 +102,7 @@ def transist(coordinates, velocities, intensities, need_reflect=False):
     reflected_intensities = np.einsum('n, n, n->n', intensities, R, can_transmit) + all_reflect
 
     # 输出所有量，按需拿取
-    return new_coordinates, new_velocities, new_intensities, reflected_coordinates, reflected_velocities, reflected_intensities
+    return new_coordinates, new_velocities, new_intensities, new_times, reflected_coordinates, reflected_velocities, reflected_intensities
 
 
 
@@ -129,21 +132,42 @@ def gen_velocities(phis, thetas):
     return velocities
 
 
-def hit_PMT_intensity(coordinates, velocities, intensities, PMT_coordinates):
+def hit_PMT_intensity(coordinates, velocities, intensities, times, PMT_coordinates):
+    # 取出所有能到达PMT的光线
     distances = distance(coordinates, velocities, PMT_coordinates)
     hit_PMT = np.einsum('n, n->n', (lambda x: x>0)(distances), (lambda x: x<r_PMT)(distances))
     allowed_index = np.where(hit_PMT)[0]
     allowed_coordinates = coordinates[:, allowed_index]
     allowed_velocities = velocities[:, allowed_index]
     allowed_intensities = intensities[allowed_index]
+    allowed_times = times[allowed_index]
     allowed_PMT_coordinates = PMT_coordinates[:, :allowed_index.shape[0]]
     # Bonus: 考虑PMT表面的反射
-    edge2PMT = allowed_PMT_coordinates - allowed_coordinates
-    norm2PMT = np.sqrt(np.einsum('kn, kn->n', edge2PMT, edge2PMT))
-    # 用正弦定理计算入射角
-    phis = np.arccos(np.sqrt(np.einsum('kn, kn->n', allowed_velocities, edge2PMT) / norm2PMT))
-    incidence_angles = np.arcsin(np.einsum('n, n->n', norm2PMT, np.sin(phis))/r_PMT)
-    emergence_angles = np.arcsin(n_water/n_glass * np.sin(incidence_angles))
+    PMT2edge = allowed_coordinates - allowed_PMT_coordinates
+
+    # # 用正弦定理计算入射角
+    # phis = np.arccos(np.sqrt(np.einsum('kn, kn->n', allowed_velocities, edge2PMT) / norm2PMT))
+    # incidence_angles = np.arcsin(np.einsum('n, n->n', norm2PMT, np.sin(phis))/r_PMT)
+    # emergence_angles = np.arcsin(n_water/n_glass * np.sin(incidence_angles))
+    # Rs = np.square(np.sin(emergence_angles - incidence_angles)/np.sin(emergence_angles + incidence_angles))
+    # Rp = np.square(np.tan(emergence_angles - incidence_angles)/np.tan(emergence_angles + incidence_angles))
+    # R = (Rs+Rp)/2
+    # T = 1 - R
+
+    # 计算到达时间
+    ts = -np.einsum('kn, kn->n', PMT2edge, allowed_velocities) +\
+          np.sqrt(np.einsum('kn, kn->n', PMT2edge, allowed_velocities)**2 - np.einsum('kn, kn->n', PMT2edge, PMT2edge) + r_PMT**2)
+    all_times = allowed_times + ts/c*n_water
+    edge_points = allowed_coordinates + np.einsum('n, kn->kn', ts, allowed_velocities)
+
+    # 计算入射角，出射角
+    normal_vectors = (edge_points - allowed_PMT_coordinates) / r_PMT
+    incidence_vectors = allowed_velocities
+    vertical_of_incidence = np.clip(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1, 1)
+    incidence_angles = np.arccos(-vertical_of_incidence)
+
+    # Bonus: 计算进入PMT的折射系数
+    emergence_angles = np.arccos(np.clip(np.einsum('kn, kn->n', allowed_velocities, -normal_vectors), -1, 1))
     Rs = np.square(np.sin(emergence_angles - incidence_angles)/np.sin(emergence_angles + incidence_angles))
     Rp = np.square(np.tan(emergence_angles - incidence_angles)/np.tan(emergence_angles + incidence_angles))
     R = (Rs+Rp)/2
@@ -151,7 +175,7 @@ def hit_PMT_intensity(coordinates, velocities, intensities, PMT_coordinates):
 
     all_intensity = np.einsum('n, n->', allowed_intensities, T)
 
-    return all_intensity
+    return all_intensity, all_times
 
 
 try_num = 20000
@@ -179,22 +203,22 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
     PMT_x = Ro * np.sin(PMT_theta) * np.cos(PMT_phi)
     PMT_y = Ro * np.sin(PMT_theta) * np.sin(PMT_phi)
     PMT_z = Ro * np.cos(PMT_theta)
-    
+
     # Step1: 均匀发出试探光线
     try_coordinates = gen_coordinates(try_num, x, y, z)
+    try_times = np.zeros(try_num)
 
     # Step2: 寻找距离PMT中心一定距离的折射光
-    try_new_coordinates, try_new_velocities, ti, try_reflected_coordinates, try_reflected_velocities = transist(try_coordinates, try_velocities, try_intensities)[:5]
+    try_new_coordinates, try_new_velocities = transist(try_coordinates, try_velocities, try_intensities, try_times)[:2]
     try_PMT_coordinates = gen_coordinates(try_num, PMT_x, PMT_y, PMT_z)
     try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
-
     vertex2PMT = np.sqrt((x-PMT_x)**2+(y-PMT_y)**2+(z-PMT_z)**2)
     d_min = 0.510
     d_max = 0.8 + vertex2PMT*0.04
     allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
     valid_index = np.where(allowed_lights)[0]
     allow_num = valid_index.shape[0] #如果大于400， 则说明顶点与PMT非常接近
-    print(f'allowed = {allow_num}')
+    #print(f'allowed = {allow_num}')
     allowed_phis = try_phis[valid_index]
     phi_start = allowed_phis.min()
     phi_end = allowed_phis.max()
@@ -214,8 +238,8 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
     Omega = (np.cos(theta_start) - np.cos(theta_end)) * (phi_end - phi_start)
     print(f'phi in {[phi_start, phi_end]}')
     print(f'theta in {[theta_start, theta_end]}')
-    print(f'Omega = {Omega}')
-
+    # print(f'Omega = {Omega}')
+    
     # Step3: 在小区域中选择光线
     dense_phi_num = 500
     dense_theta_num = 500
@@ -225,32 +249,31 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
     dense_coordinates = gen_coordinates(dense_phi_num*dense_theta_num, x, y, z)
     dense_velocities = gen_velocities(dense_phis, dense_thetas)
     dense_intensities = np.ones(dense_phi_num*dense_theta_num)
+    dense_times = np.zeros(dense_phi_num*dense_theta_num)
 
     # Step4: 判断哪些光线能够到达PMT
-    dense_new_coordinates, dense_new_velocities, dense_new_intensities = transist(dense_coordinates, dense_velocities, dense_intensities)[:3]
+    dense_new_coordinates, dense_new_velocities, dense_new_intensities, dense_new_times= transist(dense_coordinates, dense_velocities, dense_intensities, dense_times)[:4]
     dense_PMT_coordinates = gen_coordinates(dense_phi_num*dense_theta_num, PMT_x, PMT_y, PMT_z)
-    
-    all_intensity = hit_PMT_intensity(dense_new_coordinates, dense_new_velocities, dense_new_intensities, dense_PMT_coordinates)
+    all_intensity, all_times = hit_PMT_intensity(dense_new_coordinates, dense_new_velocities, dense_new_intensities, dense_new_times, dense_PMT_coordinates)
     ratio = all_intensity / (dense_phi_num*dense_theta_num)
-    print(f'ratio = {ratio}')
-    print(f'ratio = {ratio}')
-
+    # print(f'ratio = {ratio}')
     prob = ratio * Omega / (4*np.pi)
     print(f'prob = {prob}')
-    return prob
+    print(f'transist time = {all_times.mean()}')
+    return prob, all_times
 
 x = np.random.rand(4000) * 10
 y = np.random.rand(4000) * 10
 z = np.random.rand(4000) * 10
 ti = time()
-# pool = multiprocessing.Pool(processes=8)
+# pool = multiprocessing.Pool(processes=7)
 
 # for step in range(4000):
 #     s = pool.apply_async(get_PE_probability, (x[step], y[step], z[step], 0, 0))
 
 # pool.close()
 # pool.join()
-get_PE_probability(3,6,10,0,0)
+get_PE_probability(0,0,12,0,0)
 to = time()
 print(f'time = {to-ti}')
 # # 读入几何文件
