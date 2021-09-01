@@ -14,7 +14,7 @@ r_PMT = 0.508
 c = 3e8
 
 
-def transist(coordinates, velocities, intensities, times):
+def transist_once(coordinates, velocities, intensities, times):
     '''
     coordinates: (3,n)
     velocities: (3,n)，其中每个速度矢量都已经归一化
@@ -67,8 +67,8 @@ def transist(coordinates, velocities, intensities, times):
 
 
 def transist_twice(coordinates, velocities, intensities, times):
-    nt, nc, nv, ni = transist(coordinates, velocities, intensities, times)[3:]
-    return transist(nc, nv, ni, nt)
+    nt, nc, nv, ni = transist_once(coordinates, velocities, intensities, times)[3:]
+    return transist_once(nc, nv, ni, nt)
     
 
 
@@ -134,6 +134,31 @@ def hit_PMT(coordinates, velocities, intensities, times, PMT_coordinates):
 
     return all_intensity, all_times
 
+def rotate(x, y, z, PMT_phi, PMT_theta, reflect_num):
+    if reflect_num == 0:
+        if PMT_phi != np.pi or PMT_theta != np.pi/2:
+            Rz = np.array([[-np.cos(PMT_phi), -np.sin(PMT_phi), 0],
+                           [ np.sin(PMT_phi), -np.cos(PMT_phi), 0],
+                           [               0,                0, 1]])
+            Ry = np.array([[np.sin(PMT_theta), 0, -np.cos(PMT_theta)],
+                           [                0, 1,                  0],
+                           [np.cos(PMT_theta), 0,  np.sin(PMT_theta)]])
+            nx, ny, nz = Ry @ Rz @ np.array((x, y, z))
+            return nx, ny, nz, np.pi, np.pi/2
+        else:
+            return x, y, z, np.pi, np.pi/2
+    elif reflect_num == 1:
+        if PMT_phi != 0 or PMT_theta != np.pi/2:
+            Rz = np.array([[ np.cos(PMT_phi), np.sin(PMT_phi), 0],
+                           [-np.sin(PMT_phi), np.cos(PMT_phi), 0],
+                           [               0,               0, 1]])
+            Ry = np.array([[ np.sin(PMT_theta), 0, np.cos(PMT_theta)],
+                           [                 0, 1,                 0],
+                           [-np.cos(PMT_theta), 0, np.sin(PMT_theta)]])
+            nx, ny, nz = Ry @ Rz @ np.array((x, y, z))
+            return nx, ny, nz, 0, np.pi/2
+        else:
+            return x, y, z, 0, np.pi/2
 
 try_num = 20000
 try_phis = np.random.rand(try_num) * 2 * np.pi
@@ -145,17 +170,13 @@ vzs = np.cos(try_thetas)
 try_velocities = np.stack((vxs, vys, vzs))
 try_intensities = np.ones(try_num)
 
-def get_first(x, y, z, PMT_phi, PMT_theta):
+def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, d_max, acc):
+    if reflect_num == 0:
+        transist = transist_once
+    elif reflect_num == 1:
+        transist = transist_twice
     # Step0： 将PMT转到(pi, pi/2)处
-    if PMT_phi != np.pi or PMT_theta != np.pi/2:
-        Rz = np.array([[-np.cos(PMT_phi), -np.sin(PMT_phi), 0],
-                       [ np.sin(PMT_phi), -np.cos(PMT_phi), 0],
-                       [               0,                0, 1]])
-        Ry = np.array([[np.sin(PMT_theta), 0, -np.cos(PMT_theta)],
-                       [                0, 1,                  0],
-                       [np.cos(PMT_theta), 0,  np.sin(PMT_theta)]])
-        nx, ny, nz = Ry @ Rz @ np.array((x, y, z))
-        return get_first(nx, ny, nz, np.pi, np.pi/2)
+    x, y, z, PMT_phi, PMT_theta = rotate(x, y, z, PMT_phi, PMT_theta, reflect_num)
     # 读取PMT坐标信息
     PMT_x = Ro * np.sin(PMT_theta) * np.cos(PMT_phi)
     PMT_y = Ro * np.sin(PMT_theta) * np.sin(PMT_phi)
@@ -169,11 +190,12 @@ def get_first(x, y, z, PMT_phi, PMT_theta):
     try_new_coordinates, try_new_velocities = transist(try_coordinates, try_velocities, try_intensities, try_times)[:2]
     try_PMT_coordinates = gen_coordinates(try_num, PMT_x, PMT_y, PMT_z)
     try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
-    vertex2PMT = np.sqrt((x-PMT_x)**2+(y-PMT_y)**2+(z-PMT_z)**2)
+
     d_min = 0.510
-    d_max = 1.8 + vertex2PMT*0.04
     allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
     valid_index = np.where(allowed_lights)[0]
+    if valid_index.shape[0] < 4:
+        return 0, np.zeros(1)
     #print(f'allowed = {allow_num}')
     allowed_phis = try_phis[valid_index]
     phi_start = allowed_phis.min()
@@ -188,8 +210,8 @@ def get_first(x, y, z, PMT_phi, PMT_theta):
     # print(f'Omega = {Omega}')
     
     # Step3: 在小区域中选择光线
-    dense_phi_num = 500
-    dense_theta_num = 500
+    dense_phi_num = acc
+    dense_theta_num = acc
     dense_phis = np.linspace(phi_start, phi_end, dense_phi_num)
     dense_thetas = np.arccos(np.linspace(np.cos(theta_start), np.cos(theta_end), dense_theta_num))
 
@@ -210,71 +232,6 @@ def get_first(x, y, z, PMT_phi, PMT_theta):
     return prob, all_times
 
 
-def get_second(x, y, z, PMT_phi, PMT_theta):
-    # Step0： 将PMT转到(0, pi/2)处
-    if PMT_phi != 0 or PMT_theta != np.pi/2:
-        Rz = np.array([[ np.cos(PMT_phi), np.sin(PMT_phi), 0],
-                       [-np.sin(PMT_phi), np.cos(PMT_phi), 0],
-                       [               0,               0, 1]])
-        Ry = np.array([[ np.sin(PMT_theta), 0, np.cos(PMT_theta)],
-                       [                 0, 1,                 0],
-                       [-np.cos(PMT_theta), 0, np.sin(PMT_theta)]])
-        nx, ny, nz = Ry @ Rz @ np.array((x, y, z))
-        return get_second(nx, ny, nz, 0, np.pi/2)
-    # 读取PMT坐标信息
-    PMT_x = Ro * np.sin(PMT_theta) * np.cos(PMT_phi)
-    PMT_y = Ro * np.sin(PMT_theta) * np.sin(PMT_phi)
-    PMT_z = Ro * np.cos(PMT_theta)
-
-    # Step1: 均匀发出试探光线
-    try_coordinates = gen_coordinates(try_num, x, y, z)
-    try_times = np.zeros(try_num)
-
-    # Step2: 寻找距离PMT中心一定距离的折射光
-    try_new_coordinates, try_new_velocities = transist_twice(try_coordinates, try_velocities, try_intensities, try_times)[:2]
-    try_PMT_coordinates = gen_coordinates(try_num, PMT_x, PMT_y, PMT_z)
-    try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
-    vertex2PMT = np.sqrt((x-PMT_x)**2+(y-PMT_y)**2+(z-PMT_z)**2)
-    d_min = 0.510
-    d_max = 3.5 - vertex2PMT*0.04
-    allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
-    valid_index = np.where(allowed_lights)[0]
-    # print(f'allowed = {valid_index.shape[0]}')
-    allowed_phis = try_phis[valid_index]
-    phi_start = allowed_phis.min()
-    phi_end = allowed_phis.max()
-    allowed_thetas = try_thetas[valid_index]
-    theta_start = allowed_thetas.min()
-    theta_end = allowed_thetas.max()
-
-    Omega = (np.cos(theta_start) - np.cos(theta_end)) * (phi_end - phi_start)
-    # print(f'phi in {[phi_start, phi_end]}')
-    # print(f'theta in {[theta_start, theta_end]}')
-    # print(f'Omega = {Omega}')
-    
-    # Step3: 在小区域中选择光线
-    dense_phi_num = 100
-    dense_theta_num = 100
-    dense_phis = np.linspace(phi_start, phi_end, dense_phi_num)
-    dense_thetas = np.arccos(np.linspace(np.cos(theta_start), np.cos(theta_end), dense_theta_num))
-
-    dense_coordinates = gen_coordinates(dense_phi_num*dense_theta_num, x, y, z)
-    dense_velocities = gen_velocities(dense_phis, dense_thetas)
-    dense_intensities = np.ones(dense_phi_num*dense_theta_num)
-    dense_times = np.zeros(dense_phi_num*dense_theta_num)
-
-    # Step4: 判断哪些光线能够到达PMT
-    dense_new_coordinates, dense_new_velocities, dense_new_intensities, dense_new_times= transist_twice(dense_coordinates, dense_velocities, dense_intensities, dense_times)[:4]
-    dense_PMT_coordinates = gen_coordinates(dense_phi_num*dense_theta_num, PMT_x, PMT_y, PMT_z)
-    all_intensity, all_times = hit_PMT(dense_new_coordinates, dense_new_velocities, dense_new_intensities, dense_new_times, dense_PMT_coordinates)
-    ratio = all_intensity / (dense_phi_num*dense_theta_num)
-    # print(f'ratio = {ratio}')
-    prob = ratio * Omega / (4*np.pi)
-    # print(f'prob = {prob}')
-    # print(f'transist time = {all_times.mean()}')
-    return prob, all_times
-
-
 def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
     PMT_x = Ro * np.sin(PMT_theta) * np.cos(PMT_phi)
     PMT_y = Ro * np.sin(PMT_theta) * np.sin(PMT_phi)
@@ -283,15 +240,15 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
     if naive:
         return r_PMT**2/(4*d**2)  # 平方反比模式
     else:
-        prob1 = get_first(x, y, z, PMT_phi, PMT_theta)[0]
-        prob2 = get_second(x, y, z, PMT_phi, PMT_theta)[0]
+        prob1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 2, 300)[0]
+        prob2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 2, 100)[0]
         # print(prob1)
         # print(prob2)
         return prob1 + prob2
 
 def get_PE_time_distribution(x, y, z, PMT_phi, PMT_theta):
-    times1 = get_first(x, y, z, PMT_phi, PMT_theta)[1]
-    times2 = get_second(x, y, z, PMT_phi, PMT_theta)[1]
+    times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 1.8, 500)[1]
+    times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 1.8, 300)[1]
     # print(times1.mean())
     # print(times2.mean())
     return np.append(times1, times2)
@@ -308,6 +265,6 @@ ti = time()
 
 # pool.close()
 # pool.join()
-print(get_PE_probability(0,0,6,0,0))
+print(get_PE_probability(3,6,10,0,0))
 to = time()
 print(f'time = {to-ti}')
