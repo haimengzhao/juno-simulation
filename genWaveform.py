@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 '''
 电子学任务
@@ -90,11 +91,19 @@ def get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal
         print(f'{noisetype} noise not implemented, use normal noise instead!')
         Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETime.reshape(-1, 1), ampli, td, tr)
 
-    #返回Waveform表
-    return np.array(list(zip(
+    # 拼接Waveform表
+    WF = np.array(list(zip(
         EventID, 
         ChannelID, 
         list(map(lambda x: x.reshape(-1), np.split(Waveform, length, axis=0)))
         )), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+
+    # 同事件同PMT波形叠加
+    WF_pd = pd.DataFrame.from_records(WF.tolist(), columns=['EventID', 'ChannelID', 'Waveform'])
+    WF_pd = WF_pd.groupby(['ChannelID'], sort=False).apply(np.sum)
+    WF = WF_pd.to_records(index=False).astype([('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+
+    # 返回Waveform表
+    return WF
 
 
