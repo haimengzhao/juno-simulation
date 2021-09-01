@@ -23,7 +23,7 @@ def double_exp_model(t, ampli=1000, td=10, tr=5):
     return (t > 0) * ampli * np.exp(- t / td) * (1 - np.exp(- t / tr))
 
 
-def noise(t, period=np.pi/10, ampli=1e-2):
+def sin_noise(t, period=np.pi/1e30, ampli=1e-2):
     '''
     噪声 noise(t; period, ampli)
 
@@ -39,7 +39,22 @@ def noise(t, period=np.pi/10, ampli=1e-2):
     return ampli * np.sin(2 * np.pi / period * t)
 
 
-def get_waveform(PETruth, ampli=1000, td=10, tr=5, period=np.pi/10, ratio=1e-2):
+def normal_noise(t, sigma=5):
+    '''
+    噪声 noise(t; sigma)
+
+    输入: t, 时间;
+
+    参数:
+    sigma, 标准差
+
+    返回:
+    noise(t) = N(0, sigma^2)
+    '''
+    return np.random.normal(0, sigma, t.shape)
+
+
+def get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal'):
     '''
     根据PETruth生成波形
 
@@ -49,8 +64,8 @@ def get_waveform(PETruth, ampli=1000, td=10, tr=5, period=np.pi/10, ratio=1e-2):
     ampli, 波形高度;
     td, 整体衰减时间;
     tr, 峰值位置;
-    period, 噪声周期;
     ratio, 噪声振幅/波形高度;
+    noisetype, 噪声形式: 'normal' 正态分布噪声, 'sin' 正弦噪声; 
 
     返回:
     Waveform (Structured Array) [EventID, ChannelID, Waveform]
@@ -65,7 +80,15 @@ def get_waveform(PETruth, ampli=1000, td=10, tr=5, period=np.pi/10, ratio=1e-2):
 
     # 采样
     t = np.tile(np.arange(0, 1000, 1), (length, 1))
-    Waveform = noise(t, period, ratio * ampli) + double_exp_model(t - PETime.reshape(-1, 1), ampli, td, tr)
+
+    # 生成Waveform
+    if noisetype == 'normal':
+        Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETime.reshape(-1, 1), ampli, td, tr)
+    elif noisetype == 'sin':
+        Waveform = sin_noise(t, np.pi/1e30, ratio * ampli) + double_exp_model(t - PETime.reshape(-1, 1), ampli, td, tr)
+    else:
+        print(f'{noisetype} noise not implemented, use normal noise instead!')
+        Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETime.reshape(-1, 1), ampli, td, tr)
 
     #返回Waveform表
     return np.array(list(zip(
