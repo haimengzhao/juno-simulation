@@ -239,7 +239,7 @@ def get_second(x, y, z, PMT_phi, PMT_theta):
     d_max = 3 - vertex2PMT*0.04
     allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
     valid_index = np.where(allowed_lights)[0]
-    print(f'allowed = {valid_index.shape[0]}')
+    # print(f'allowed = {valid_index.shape[0]}')
     allowed_phis = try_phis[valid_index]
     phi_start = allowed_phis.min()
     phi_end = allowed_phis.max()
@@ -248,13 +248,13 @@ def get_second(x, y, z, PMT_phi, PMT_theta):
     theta_end = allowed_thetas.max()
 
     Omega = (np.cos(theta_start) - np.cos(theta_end)) * (phi_end - phi_start)
-    print(f'phi in {[phi_start, phi_end]}')
-    print(f'theta in {[theta_start, theta_end]}')
+    # print(f'phi in {[phi_start, phi_end]}')
+    # print(f'theta in {[theta_start, theta_end]}')
     # print(f'Omega = {Omega}')
     
     # Step3: 在小区域中选择光线
-    dense_phi_num = 500
-    dense_theta_num = 500
+    dense_phi_num = 200
+    dense_theta_num = 200
     dense_phis = np.linspace(phi_start, phi_end, dense_phi_num)
     dense_thetas = np.arccos(np.linspace(np.cos(theta_start), np.cos(theta_end), dense_theta_num))
 
@@ -268,7 +268,7 @@ def get_second(x, y, z, PMT_phi, PMT_theta):
     dense_PMT_coordinates = gen_coordinates(dense_phi_num*dense_theta_num, PMT_x, PMT_y, PMT_z)
     all_intensity, all_times = hit_PMT(dense_new_coordinates, dense_new_velocities, dense_new_intensities, dense_new_times, dense_PMT_coordinates)
     ratio = all_intensity / (dense_phi_num*dense_theta_num)
-    print(f'ratio = {ratio}')
+    # print(f'ratio = {ratio}')
     prob = ratio * Omega / (4*np.pi)
     # print(f'prob = {prob}')
     # print(f'transist time = {all_times.mean()}')
@@ -292,8 +292,8 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
 def get_PE_time_distribution(x, y, z, PMT_phi, PMT_theta):
     times1 = get_first(x, y, z, PMT_phi, PMT_theta)[1]
     times2 = get_second(x, y, z, PMT_phi, PMT_theta)[1]
-    print(times1.mean())
-    print(times2.mean())
+    # print(times1.mean())
+    # print(times2.mean())
     return np.append(times1, times2)
 
 
