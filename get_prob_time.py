@@ -170,7 +170,7 @@ vzs = np.cos(try_thetas)
 try_velocities = np.stack((vxs, vys, vzs))
 try_intensities = np.ones(try_num)
 
-def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, d_max, acc):
+def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
     if reflect_num == 0:
         transist = transist_once
     elif reflect_num == 1:
@@ -192,11 +192,16 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, d_max, acc):
     try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
 
     d_min = 0.510
-    allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
-    valid_index = np.where(allowed_lights)[0]
-    if valid_index.shape[0] < 4:
+    for d_max in np.linspace(0.6, 5, 100):
+        global valid_index, allow_num
+        allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
+        valid_index = np.where(allowed_lights)[0]
+        allow_num = valid_index.shape[0]
+        if allow_num > 20:
+            break
+    if valid_index.shape[0] <= 20:
         return 0, np.zeros(1)
-    #print(f'allowed = {allow_num}')
+    # print(f'allowed = {allow_num}')
     allowed_phis = try_phis[valid_index]
     phi_start = allowed_phis.min()
     phi_end = allowed_phis.max()
@@ -225,6 +230,7 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, d_max, acc):
     dense_PMT_coordinates = gen_coordinates(dense_phi_num*dense_theta_num, PMT_x, PMT_y, PMT_z)
     all_intensity, all_times = hit_PMT(dense_new_coordinates, dense_new_velocities, dense_new_intensities, dense_new_times, dense_PMT_coordinates)
     ratio = all_intensity / (dense_phi_num*dense_theta_num)
+    # print(f'light num = {all_times.shape[0]}')
     # print(f'ratio = {ratio}')
     prob = ratio * Omega / (4*np.pi)
     # print(f'prob = {prob}')
@@ -240,24 +246,26 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
     if naive:
         return r_PMT**2/(4*d**2)  # 平方反比模式
     else:
-        prob1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 2, 300)[0]
-        prob2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 2, 100)[0]
+        prob1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 500)[0]
+        prob2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 200)[0]
         # print(prob1)
         # print(prob2)
         return prob1 + prob2
 
-def get_PE_time_distribution(x, y, z, PMT_phi, PMT_theta):
-    times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 1.8, 500)[1]
-    times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 1.8, 300)[1]
-    # print(times1.mean())
-    # print(times2.mean())
-    return np.append(times1, times2)
+def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
+    prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 500)
+    prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 200)
+    # print(prob1/prob2)
+    p = np.random.rand()
+    if p < prob1/(prob1+prob2):     # 即一次折射无反射
+        return np.random.choice(times1)
+    else:
+        return np.random.choice(times2)
 
 
-x = np.random.rand(4000) * 10
-y = np.random.rand(4000) * 10
-z = np.random.rand(4000) * 10
-ti = time()
+
+
+# ti = time()
 # pool = multiprocessing.Pool(processes=7)
 
 # for step in range(4000):
@@ -265,6 +273,6 @@ ti = time()
 
 # pool.close()
 # pool.join()
-print(get_PE_probability(3,6,10,0,0))
-to = time()
-print(f'time = {to-ti}')
+# print(get_random_PE_time(3,6,-10,0,0))
+# to = time()
+# print(f'time = {to-ti}')
