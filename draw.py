@@ -11,6 +11,10 @@ Ri = 17.71e3 # inner radius / mm
 Ro = 19.5e3 # outer radius / mm
 Volume_i = 4 / 3 * np.pi * Ri ** 3 # volume of LS
 
+NumBins_Density = 15
+NumBins_PETime = 1000
+NumBins_Probe = 50
+
 # 该类在测试时会用到，请不要私自修改函数签名，后果自负
 class Drawer:
     def __init__(self, data, geo):
@@ -37,7 +41,7 @@ class Drawer:
 
         # extract histogram statistics
         # density=True: n = dN/(N * dr)
-        n, bins, patches = ax.hist(r, bins=50, density=True)
+        n, bins, patches = ax.hist(r, bins=NumBins_Density, density=True)
         ax.cla()
 
         # plot
@@ -80,7 +84,7 @@ class Drawer:
 
         ax.set_ylabel(r'Number of PE Hit')
 
-        ax.hist(time, bins=1000, density=False)
+        ax.hist(time, bins=NumBins_PETime, density=False)
         
 
     def draw_probe(self, fig, ax):
@@ -113,7 +117,7 @@ class Drawer:
         
         # extract histogram statistics
         # density=True: h = d#PE/(#PE dr dtheta)
-        h, xedges, yedges, im = ax.hist2d(pet_polar[:, 0], pet_polar[:, 1], 50, range=[[0, np.pi-1e-2], [0, Ri]], density=True)
+        h, xedges, yedges, im = ax.hist2d(pet_polar[:, 0], pet_polar[:, 1], NumBins_Probe, range=[[0, np.pi-1e-2], [0, Ri]], density=True)
         ax.cla()
 
         # expand theta from [0, pi] to [0, 2pi]
