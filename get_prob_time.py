@@ -1,7 +1,7 @@
 import numpy as np
 from time import time
 import multiprocessing
-
+from timeit import Timer
 
 # TODO: 光学部分
 n_water = 1.33
@@ -22,9 +22,9 @@ def transist_once(coordinates, velocities, intensities, times):
     '''
     # 求解折射点
     ts = (-np.einsum('kn, kn->n', coordinates, velocities) +\
-           np.sqrt(np.einsum('kn, kn, pn, pn->n', coordinates, velocities, coordinates, velocities) -\
+           np.sqrt(np.einsum('kn, kn->n', coordinates, velocities)**2 -\
           (np.einsum('kn, kn->n', coordinates, coordinates)-Ri**2)))     #到达液闪边界的时间
-    edge_points = coordinates + np.einsum('n, kn->kn', ts, velocities)
+    edge_points = coordinates + ts * velocities
     
     # 计算增加的时间
     new_times = times + ts/c*n_LS
@@ -38,17 +38,17 @@ def transist_once(coordinates, velocities, intensities, times):
     
     # 判断全反射
     max_incidence_angle = np.arcsin(n_water/n_LS)
-    can_transmit = (lambda x: x<max_incidence_angle)(incidence_angles)
+    can_transmit = (incidence_angles < max_incidence_angle)
     all_reflect = 1 - can_transmit
 
     #计算折射光，反射光矢量与位置
-    reflected_velocities = velocities - 2 * np.einsum('n, kn->kn', vertical_of_incidence, normal_vectors)
+    reflected_velocities = velocities - 2 * vertical_of_incidence * normal_vectors
     reflected_coordinates = edge_points
 
     delta = 1 - eta**2 * (1 - vertical_of_incidence**2)
     new_velocities = eta*incidence_vectors -\
-                     np.einsum('n, kn->kn', eta*vertical_of_incidence + np.sqrt(np.abs(delta)), normal_vectors) #取绝对值避免出错
-    new_velocities = np.einsum('n, kn->kn', can_transmit, new_velocities)
+                     (eta*vertical_of_incidence + np.sqrt(np.abs(delta))) * normal_vectors #取绝对值避免出错
+    new_velocities = can_transmit * new_velocities
     new_coordinates = edge_points
 
     # 计算折射系数
@@ -71,13 +71,10 @@ def transist_twice(coordinates, velocities, intensities, times):
     return transist_once(nc, nv, ni, nt)
     
 
-
-
 def distance(coordinates, velocities, PMT_coordinates):
     new_ts = np.einsum('kn, kn->n', PMT_coordinates - coordinates, velocities)
-    nearest_points = coordinates + np.einsum('n, kn->kn', new_ts, velocities)
-    distances = np.sqrt(np.einsum('kn, kn->n', nearest_points - PMT_coordinates, nearest_points - PMT_coordinates)) *\
-                (lambda x: x>0)(new_ts)
+    nearest_points = coordinates + new_ts * velocities
+    distances = np.sqrt(np.einsum('kn, kn->n', nearest_points - PMT_coordinates, nearest_points - PMT_coordinates)) * (new_ts>0)
     return distances
 
 
@@ -92,8 +89,8 @@ def gen_velocities(phis, thetas):
     phi, theta = np.meshgrid(phis, thetas)
     phi_d = phi.ravel()
     theta_d = theta.ravel()
-    vxs = np.einsum('n, n->n', np.sin(theta_d), np.cos(phi_d))
-    vys = np.einsum('n, n->n', np.sin(theta_d), np.sin(phi_d))
+    vxs = np.sin(theta_d) * np.cos(phi_d)
+    vys = np.sin(theta_d) * np.sin(phi_d)
     vzs = np.cos(theta_d)
     velocities = np.stack((vxs, vys, vzs))
     return velocities
@@ -102,7 +99,7 @@ def gen_velocities(phis, thetas):
 def hit_PMT(coordinates, velocities, intensities, times, PMT_coordinates):
     # 取出所有能到达PMT的光线
     distances = distance(coordinates, velocities, PMT_coordinates)
-    hit_PMT = np.einsum('n, n->n', (lambda x: x>0)(distances), (lambda x: x<r_PMT)(distances))
+    hit_PMT = (distances>0) * (distances<r_PMT)
     allowed_index = np.where(hit_PMT)[0]
     allowed_coordinates = coordinates[:, allowed_index]
     allowed_velocities = velocities[:, allowed_index]
@@ -115,7 +112,7 @@ def hit_PMT(coordinates, velocities, intensities, times, PMT_coordinates):
     ts = -np.einsum('kn, kn->n', PMT2edge, allowed_velocities) +\
           np.sqrt(np.einsum('kn, kn->n', PMT2edge, allowed_velocities)**2 - np.einsum('kn, kn->n', PMT2edge, PMT2edge) + r_PMT**2)
     all_times = allowed_times + ts/c*n_water
-    edge_points = allowed_coordinates + np.einsum('n, kn->kn', ts, allowed_velocities)
+    edge_points = allowed_coordinates + ts * allowed_velocities
 
     # 计算入射角，出射角
     normal_vectors = (edge_points - allowed_PMT_coordinates) / r_PMT
@@ -164,8 +161,8 @@ try_num = 20000
 try_phis = np.random.rand(try_num) * 2 * np.pi
 try_thetas = np.arccos(np.random.rand(try_num)*2 - 1)
 
-vxs = np.einsum('n, n->n', np.sin(try_thetas), np.cos(try_phis))
-vys = np.einsum('n, n->n', np.sin(try_thetas), np.sin(try_phis))
+vxs = np.sin(try_thetas) * np.cos(try_phis)
+vys = np.sin(try_thetas) * np.sin(try_phis)
 vzs = np.cos(try_thetas)
 try_velocities = np.stack((vxs, vys, vzs))
 try_intensities = np.ones(try_num)
@@ -192,14 +189,15 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
     try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
 
     d_min = 0.510
+    # 自动调节d_max，使得粗调得到一个恰当的范围（20根粗射光线）
     for d_max in np.linspace(0.6, 5, 100):
         global valid_index, allow_num
-        allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
+        allowed_lights = (try_distances>d_min) * (try_distances<d_max)
         valid_index = np.where(allowed_lights)[0]
         allow_num = valid_index.shape[0]
         if allow_num > 20:
             break
-    if valid_index.shape[0] <= 20:
+    if allow_num <= 20:
         return 0, np.zeros(1)
     # print(f'allowed = {allow_num}')
     allowed_phis = try_phis[valid_index]
@@ -276,3 +274,6 @@ def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
 # print(get_random_PE_time(3,6,-10,0,0))
 # to = time()
 # print(f'time = {to-ti}')
+if __name__ == '__main__':
+    print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(100))
+
