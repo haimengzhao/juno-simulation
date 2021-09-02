@@ -103,6 +103,8 @@ def generate_events(number_of_events):
         gen_times.append(gen_time)
     
     print("生成完成！")
+
+    return Particle_Truth, None
     
 
 
