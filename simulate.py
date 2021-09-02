@@ -39,10 +39,10 @@ if __name__ == "__main__":
     ParticleTruth, PhotonTruth = generate_events(args.n)
 
     # TODO: 光学
-    PETruth = None
+    PETruth = np.zeros(1)
 
     # TODO: 波形
-    Waveform = None
+    Waveform = np.zeros(1)
 
     # 保存文件
     save_file(args.opt, ParticleTruth, PETruth, Waveform)

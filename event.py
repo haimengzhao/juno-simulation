@@ -1,13 +1,14 @@
 import numpy as np
 from scipy.integrate import quad
 import utils
+from tqdm import tqdm
 
 LS_RADIUS = 17.71 # 液闪的半径，单位m
 SIGMA = 5 # 正态分布的标准差
 TAU = 20 # 指数衰减函数e^(-t/tau)中的tau
 NORM_FACTOR = 69.15044738473783 # 期望的归一化系数
 T_MAX = 500 # 只考虑500ns以内产生的光子
-PRECISION = 10000 # expectation取样时的间隔为其倒数
+PRECISION = 1e5 # expectation取样时的间隔为其倒数
 
 
 def expectation(t):
@@ -50,7 +51,7 @@ def generate_events(number_of_events):
     # 初始化expectation
     print("初始化expectation...")
     expect_vect = np.vectorize(expectation)
-    expect_list = expect_vect(np.arange(0, 500, 1/PRECISION))
+    expect_list = expect_vect(np.arange(0, T_MAX, 1/PRECISION))
     print("初始化完成！")
 
     # 初始化rng
@@ -93,7 +94,7 @@ def generate_events(number_of_events):
         rng.poisson(expectation(0)*T_MAX, number_of_events)
         ).astype(int)
     gen_times = []
-    for photon_count in photon_counts:
+    for photon_count in tqdm(photon_counts):
         gen_time = np.sort(rng.random(photon_count) * T_MAX)
         expe_vec = np.vectorize(expectation)
         gen_time = gen_time[
