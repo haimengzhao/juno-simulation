@@ -4,6 +4,7 @@ import multiprocessing
 from numba import jit
 import numba
 from tqdm.std import tqdm
+from timeit import timeit
 
 
 # TODO: 光学部分
@@ -16,7 +17,7 @@ Ro = 19.5
 r_PMT = 0.508
 c = 3e8
 
-@jit(nopython=True, parallel=True)
+@jit(nopython=True, nogil=True)
 def transist_once(coordinates, velocities, intensities, times):
     '''
     coordinates: (3,n)
@@ -68,27 +69,27 @@ def transist_once(coordinates, velocities, intensities, times):
     # 输出所有量，按需拿取
     return new_coordinates, new_velocities, new_intensities, new_times, reflected_coordinates, reflected_velocities, reflected_intensities
 
-
+@jit(nopython=True, nogil=True)
 def transist_twice(coordinates, velocities, intensities, times):
     nt, nc, nv, ni = transist_once(coordinates, velocities, intensities, times)[3:]
     return transist_once(nc, nv, ni, nt)
     
 
-
-
+@jit(nopython=True, nogil=True)
 def distance(coordinates, velocities, PMT_coordinates):
     new_ts = np.sum((PMT_coordinates - coordinates)*velocities, axis=0)
     nearest_points = coordinates + new_ts * velocities
     distances = np.sqrt(np.sum((nearest_points - PMT_coordinates)**2, axis=0)) * (new_ts>0)
     return distances
 
-
+@jit(nopython=True)
 def gen_coordinates(len, x, y, z):
     coordinate_x = np.full(len, x)
     coordinate_y = np.full(len, y)
     coordinate_z = np.full(len, z)
     coordinates = np.stack((coordinate_x, coordinate_y, coordinate_z))
     return coordinates
+
 
 def gen_velocities(phis, thetas):
     phi, theta = np.meshgrid(phis, thetas)
@@ -100,7 +101,7 @@ def gen_velocities(phis, thetas):
     velocities = np.stack((vxs, vys, vzs))
     return velocities
 
-
+@jit(nopython=True, nogil=True)
 def hit_PMT(coordinates, velocities, intensities, times, PMT_coordinates):
     # 取出所有能到达PMT的光线
     distances = distance(coordinates, velocities, PMT_coordinates)
@@ -135,6 +136,7 @@ def hit_PMT(coordinates, velocities, intensities, times, PMT_coordinates):
     all_intensity = np.sum(allowed_intensities*T)
 
     return all_intensity, all_times
+
 
 def rotate(x, y, z, PMT_phi, PMT_theta, reflect_num):
     if reflect_num == 0:
@@ -194,8 +196,9 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
     try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
 
     d_min = 0.510
+    valid_index = np.zeros(1)
+    allow_num = 0
     for d_max in np.linspace(0.6, 5, 100):
-        global valid_index, allow_num
         allowed_lights = (try_distances>d_min) * (try_distances<d_max)
         valid_index = np.where(allowed_lights)[0]
         allow_num = valid_index.shape[0]
@@ -254,6 +257,7 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
         # print(prob2)
         return prob1 + prob2
 
+
 def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
     prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 500)
     prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 200)
@@ -265,21 +269,20 @@ def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
         return np.random.choice(times2)
 
 
+num = 4000
+x = np.random.random(num) * 10
+y = np.random.random(num) * 10
+z = np.random.random(num) * 10
 
-
-ti = time()
+# ti = time()
+# pbar = tqdm(total=num)
 # pool = multiprocessing.Pool(processes=7)
 
 # for step in range(4000):
-#     s = pool.apply_async(get_PE_probability, (x[step], y[step], z[step], 0, 0))
-num = 4000
+#     pool.apply_async(get_PE_probability, (x[step], y[step], z[step], 0, 0), callback=(lambda x: pbar.update()))
+
 # pool.close()
 # pool.join()
-pbar = tqdm(total=num)
-def task():
-    for i in numba.prange(num):
-        get_random_PE_time(3,6,-10,0,0)
-        pbar.update()
-task()
-to = time()
-print(f'time = {to-ti}')
+
+# to = time()
+# print(f'time = {to-ti}')
