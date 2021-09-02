@@ -2,6 +2,7 @@ import numpy as np
 from time import time
 import multiprocessing
 from timeit import Timer
+import numexpr as ne
 
 # TODO: 光学部分
 n_water = 1.33
@@ -45,16 +46,14 @@ def transist_once(coordinates, velocities, intensities, times):
     reflected_velocities = velocities - 2 * vertical_of_incidence * normal_vectors
     reflected_coordinates = edge_points
 
-    delta = 1 - eta**2 * (1 - vertical_of_incidence**2)
-    new_velocities = eta*incidence_vectors -\
-                     (eta*vertical_of_incidence + np.sqrt(np.abs(delta))) * normal_vectors #取绝对值避免出错
-    new_velocities = can_transmit * new_velocities
+    delta = ne.evaluate('1 - eta**2 * (1 - vertical_of_incidence**2)')
+    new_velocities = ne.evaluate('(eta*incidence_vectors - (eta*vertical_of_incidence + sqrt(abs(delta))) * normal_vectors) * can_transmit') #取绝对值避免出错
     new_coordinates = edge_points
 
     # 计算折射系数
     emergence_angles = np.arccos(np.clip(np.einsum('kn, kn->n', new_velocities, -normal_vectors), -1, 1))
-    Rs = np.square(np.sin(emergence_angles - incidence_angles)/np.sin(emergence_angles + incidence_angles))
-    Rp = np.square(np.tan(emergence_angles - incidence_angles)/np.tan(emergence_angles + incidence_angles))
+    Rs = ne.evaluate('(sin(emergence_angles - incidence_angles)/sin(emergence_angles + incidence_angles))**2')
+    Rp = ne.evaluate('(tan(emergence_angles - incidence_angles)/tan(emergence_angles + incidence_angles))**2')
     R = (Rs+Rp)/2
     T = 1 - R
     
@@ -122,8 +121,8 @@ def hit_PMT(coordinates, velocities, intensities, times, PMT_coordinates):
 
     # Bonus: 计算进入PMT的折射系数
     emergence_angles = np.arccos(np.clip(np.einsum('kn, kn->n', allowed_velocities, -normal_vectors), -1, 1))
-    Rs = np.square(np.sin(emergence_angles - incidence_angles)/np.sin(emergence_angles + incidence_angles))
-    Rp = np.square(np.tan(emergence_angles - incidence_angles)/np.tan(emergence_angles + incidence_angles))
+    Rs = ne.evaluate('(sin(emergence_angles - incidence_angles)/sin(emergence_angles + incidence_angles))**2')
+    Rp = ne.evaluate('(tan(emergence_angles - incidence_angles)/tan(emergence_angles + incidence_angles))**2')
     R = (Rs+Rp)/2
     T = 1 - R
 
