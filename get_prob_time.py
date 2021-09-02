@@ -1,6 +1,9 @@
 import numpy as np
 from time import time
 import multiprocessing
+from numba import jit
+import numba
+from tqdm.std import tqdm
 
 
 # TODO: 光学部分
@@ -13,7 +16,7 @@ Ro = 19.5
 r_PMT = 0.508
 c = 3e8
 
-
+@jit(nopython=True, parallel=True)
 def transist_once(coordinates, velocities, intensities, times):
     '''
     coordinates: (3,n)
@@ -21,10 +24,10 @@ def transist_once(coordinates, velocities, intensities, times):
     intensities: (n,)
     '''
     # 求解折射点
-    ts = (-np.einsum('kn, kn->n', coordinates, velocities) +\
-           np.sqrt(np.einsum('kn, kn, pn, pn->n', coordinates, velocities, coordinates, velocities) -\
-          (np.einsum('kn, kn->n', coordinates, coordinates)-Ri**2)))     #到达液闪边界的时间
-    edge_points = coordinates + np.einsum('n, kn->kn', ts, velocities)
+    ts = -np.sum(coordinates*velocities, axis=0) +\
+          np.sqrt(np.sum(coordinates*velocities, axis=0)**2 -\
+                 (np.sum(coordinates**2, axis=0)-Ri**2))     #到达液闪边界的时间
+    edge_points = coordinates + ts*velocities
     
     # 计算增加的时间
     new_times = times + ts/c*n_LS
@@ -32,7 +35,7 @@ def transist_once(coordinates, velocities, intensities, times):
     # 计算入射角，出射角
     normal_vectors = -edge_points / Ri
     incidence_vectors = velocities
-    vertical_of_incidence = np.clip(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1, 1)
+    vertical_of_incidence = np.minimum(np.maximum(np.sum(incidence_vectors * normal_vectors, axis=0), -1), 1)
     incidence_angles = np.arccos(-vertical_of_incidence)
     
     
@@ -42,25 +45,25 @@ def transist_once(coordinates, velocities, intensities, times):
     all_reflect = 1 - can_transmit
 
     #计算折射光，反射光矢量与位置
-    reflected_velocities = velocities - 2 * np.einsum('n, kn->kn', vertical_of_incidence, normal_vectors)
+    reflected_velocities = velocities - 2 * vertical_of_incidence * normal_vectors
     reflected_coordinates = edge_points
 
     delta = 1 - eta**2 * (1 - vertical_of_incidence**2)
     new_velocities = eta*incidence_vectors -\
-                     np.einsum('n, kn->kn', eta*vertical_of_incidence + np.sqrt(np.abs(delta)), normal_vectors) #取绝对值避免出错
-    new_velocities = np.einsum('n, kn->kn', can_transmit, new_velocities)
+                     ((eta*vertical_of_incidence + np.sqrt(np.abs(delta))) * normal_vectors) #取绝对值避免出错
+    new_velocities = can_transmit * new_velocities
     new_coordinates = edge_points
 
     # 计算折射系数
-    emergence_angles = np.arccos(np.clip(np.einsum('kn, kn->n', new_velocities, -normal_vectors), -1, 1))
+    emergence_angles = np.arccos(np.minimum(np.maximum(-np.sum(new_velocities*normal_vectors, axis=0), -1), 1))
     Rs = np.square(np.sin(emergence_angles - incidence_angles)/np.sin(emergence_angles + incidence_angles))
     Rp = np.square(np.tan(emergence_angles - incidence_angles)/np.tan(emergence_angles + incidence_angles))
     R = (Rs+Rp)/2
     T = 1 - R
     
     # 计算折射光，反射光强度
-    new_intensities = np.einsum('n, n, n->n', intensities, T, can_transmit)
-    reflected_intensities = np.einsum('n, n, n->n', intensities, R, can_transmit) + all_reflect
+    new_intensities = intensities * T * can_transmit
+    reflected_intensities = intensities * R * can_transmit + all_reflect
 
     # 输出所有量，按需拿取
     return new_coordinates, new_velocities, new_intensities, new_times, reflected_coordinates, reflected_velocities, reflected_intensities
@@ -74,10 +77,9 @@ def transist_twice(coordinates, velocities, intensities, times):
 
 
 def distance(coordinates, velocities, PMT_coordinates):
-    new_ts = np.einsum('kn, kn->n', PMT_coordinates - coordinates, velocities)
-    nearest_points = coordinates + np.einsum('n, kn->kn', new_ts, velocities)
-    distances = np.sqrt(np.einsum('kn, kn->n', nearest_points - PMT_coordinates, nearest_points - PMT_coordinates)) *\
-                (lambda x: x>0)(new_ts)
+    new_ts = np.sum((PMT_coordinates - coordinates)*velocities, axis=0)
+    nearest_points = coordinates + new_ts * velocities
+    distances = np.sqrt(np.sum((nearest_points - PMT_coordinates)**2, axis=0)) * (new_ts>0)
     return distances
 
 
@@ -92,8 +94,8 @@ def gen_velocities(phis, thetas):
     phi, theta = np.meshgrid(phis, thetas)
     phi_d = phi.ravel()
     theta_d = theta.ravel()
-    vxs = np.einsum('n, n->n', np.sin(theta_d), np.cos(phi_d))
-    vys = np.einsum('n, n->n', np.sin(theta_d), np.sin(phi_d))
+    vxs = np.sin(theta_d) * np.cos(phi_d)
+    vys = np.sin(theta_d) * np.sin(phi_d)
     vzs = np.cos(theta_d)
     velocities = np.stack((vxs, vys, vzs))
     return velocities
@@ -102,7 +104,7 @@ def gen_velocities(phis, thetas):
 def hit_PMT(coordinates, velocities, intensities, times, PMT_coordinates):
     # 取出所有能到达PMT的光线
     distances = distance(coordinates, velocities, PMT_coordinates)
-    hit_PMT = np.einsum('n, n->n', (lambda x: x>0)(distances), (lambda x: x<r_PMT)(distances))
+    hit_PMT = (distances>0) * (distances<r_PMT)
     allowed_index = np.where(hit_PMT)[0]
     allowed_coordinates = coordinates[:, allowed_index]
     allowed_velocities = velocities[:, allowed_index]
@@ -112,25 +114,25 @@ def hit_PMT(coordinates, velocities, intensities, times, PMT_coordinates):
    
     # 计算到达时间
     PMT2edge = allowed_coordinates - allowed_PMT_coordinates
-    ts = -np.einsum('kn, kn->n', PMT2edge, allowed_velocities) +\
-          np.sqrt(np.einsum('kn, kn->n', PMT2edge, allowed_velocities)**2 - np.einsum('kn, kn->n', PMT2edge, PMT2edge) + r_PMT**2)
+    ts = -np.sum(PMT2edge*allowed_velocities, axis=0) +\
+          np.sqrt(np.sum(PMT2edge*allowed_velocities, axis=0)**2 - np.sum(PMT2edge**2, axis=0) + r_PMT**2)
     all_times = allowed_times + ts/c*n_water
-    edge_points = allowed_coordinates + np.einsum('n, kn->kn', ts, allowed_velocities)
+    edge_points = allowed_coordinates + ts * allowed_velocities
 
     # 计算入射角，出射角
     normal_vectors = (edge_points - allowed_PMT_coordinates) / r_PMT
     incidence_vectors = allowed_velocities
-    vertical_of_incidence = np.clip(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1, 1)
+    vertical_of_incidence = np.minimum(np.maximum(np.sum(incidence_vectors*normal_vectors, axis=0), -1), 1)
     incidence_angles = np.arccos(-vertical_of_incidence)
 
     # Bonus: 计算进入PMT的折射系数
-    emergence_angles = np.arccos(np.clip(np.einsum('kn, kn->n', allowed_velocities, -normal_vectors), -1, 1))
+    emergence_angles = np.arccos(np.minimum(np.maximum(-np.sum(allowed_velocities*normal_vectors, axis=0), -1), 1))
     Rs = np.square(np.sin(emergence_angles - incidence_angles)/np.sin(emergence_angles + incidence_angles))
     Rp = np.square(np.tan(emergence_angles - incidence_angles)/np.tan(emergence_angles + incidence_angles))
     R = (Rs+Rp)/2
     T = 1 - R
 
-    all_intensity = np.einsum('n, n->', allowed_intensities, T)
+    all_intensity = np.sum(allowed_intensities*T)
 
     return all_intensity, all_times
 
@@ -164,8 +166,8 @@ try_num = 20000
 try_phis = np.random.rand(try_num) * 2 * np.pi
 try_thetas = np.arccos(np.random.rand(try_num)*2 - 1)
 
-vxs = np.einsum('n, n->n', np.sin(try_thetas), np.cos(try_phis))
-vys = np.einsum('n, n->n', np.sin(try_thetas), np.sin(try_phis))
+vxs = np.sin(try_thetas) * np.cos(try_phis)
+vys = np.sin(try_thetas) * np.sin(try_phis)
 vzs = np.cos(try_thetas)
 try_velocities = np.stack((vxs, vys, vzs))
 try_intensities = np.ones(try_num)
@@ -194,7 +196,7 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
     d_min = 0.510
     for d_max in np.linspace(0.6, 5, 100):
         global valid_index, allow_num
-        allowed_lights = np.einsum('n, n->n', (lambda x: x>d_min)(try_distances), (lambda x: x<d_max)(try_distances))
+        allowed_lights = (try_distances>d_min) * (try_distances<d_max)
         valid_index = np.where(allowed_lights)[0]
         allow_num = valid_index.shape[0]
         if allow_num > 20:
@@ -265,14 +267,19 @@ def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
 
 
 
-# ti = time()
+ti = time()
 # pool = multiprocessing.Pool(processes=7)
 
 # for step in range(4000):
 #     s = pool.apply_async(get_PE_probability, (x[step], y[step], z[step], 0, 0))
-
+num = 4000
 # pool.close()
 # pool.join()
-# print(get_random_PE_time(3,6,-10,0,0))
-# to = time()
-# print(f'time = {to-ti}')
+pbar = tqdm(total=num)
+def task():
+    for i in numba.prange(num):
+        get_random_PE_time(3,6,-10,0,0)
+        pbar.update()
+task()
+to = time()
+print(f'time = {to-ti}')
