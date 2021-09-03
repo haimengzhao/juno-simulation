@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.integrate import quad
+import multiprocessing
 import utils
 from tqdm import tqdm
 
@@ -52,9 +53,18 @@ def generate_events(number_of_events):
     # 初始化expectation
     print("初始化expectation...")
     step = 1/PRECISION
-    expect_list = np.arange(0, T_MAX+step, step)
-    for index, number in (enumerate(tqdm(np.arange(0, T_MAX, step)))):
-        expect_list[index] = expectation(number)
+    expect_list = np.zeros(int(T_MAX/step) + 1)
+    
+    with multiprocessing.Pool(8) as p:
+        expect_list = np.array(
+            list(tqdm(
+                p.imap(
+                    expectation,
+                    np.arange(0, T_MAX+step, step)
+                ),
+                total=expect_list.shape[0]
+            ))
+        )
     print("初始化完成！")
 
     # 线性插值
