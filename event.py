@@ -110,7 +110,7 @@ def generate_events(number_of_events):
     for event_id, photon_count in enumerate(tqdm(photon_counts)):
         gen_time = np.sort(rng.random(photon_count) * T_MAX)
         gen_time = gen_time[
-            rng.random() < linear_intp(gen_time, expect_list, PRECISION)
+            rng.random() < linear_intp(gen_time, expect_list, PRECISION)/expect_list[0]
         ]
         real_photon_count = gen_time.shape[0]
         event_ids[start:(start + real_photon_count)] = event_id

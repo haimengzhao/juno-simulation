@@ -36,8 +36,6 @@ from get_prob_time import get_PE_probability, get_random_PE_time
 from genWaveform import get_waveform  
 from utils import save_file
 
-PMT_COUNT = 10
-
 if __name__ == "__main__":
 
     rng = np.random.default_rng()
@@ -46,28 +44,30 @@ if __name__ == "__main__":
     parser.add_argument("-n", dest="n", type=int, help="Number of events")
     parser.add_argument("-g", "--geo", dest="geo", type=str, help="Geometry file")
     parser.add_argument("-o", "--output", dest="opt", type=str, help="Output file")
+    parser.add_argument("-p", "--pmt", dest="pmt_count", type=int, help="Number of PMTs")
     args = parser.parse_args()
 
     # 读入几何文件
     with h5.File(args.geo, "r") as geo:
         # 只要求模拟17612个PMT
-        PMT_list = geo['Geometry'][:PMT_COUNT]
+        PMT_list = geo['Geometry'][:args.pmt_count]
 
 
     # 生成顶点
     ParticleTruth, PhotonTruth = generate_events(args.n)
 
     # 光学过程
-    PE_prob_cumsum = np.zeros((args.n, PMT_COUNT))
+    PE_prob_cumsum = np.zeros((args.n, args.pmt_count))
+    PE_prob_array = np.zeros((args.n, args.pmt_count))
 
     for event in tqdm(ParticleTruth):
         for PMT in PMT_list:
-            PE_prob_array = np.zeros(PMT_COUNT)
-            PE_prob_array[PMT['ChannelID']] = get_PE_probability(
+            PE_prob_array[event['EventID']][PMT['ChannelID']] = get_PE_probability(
                 event['x']/1000, event['y']/1000, event['z']/1000,
                 PMT['phi']/180*np.pi, PMT['theta']/180*np.pi
             )
-            PE_prob_cumsum[event['EventID']][:] = np.cumsum(PE_prob_array)
+        
+        PE_prob_cumsum[event['EventID']][:] = np.cumsum(PE_prob_array[event['EventID']])
     
     PE_event_ids = np.zeros(PhotonTruth.shape[0])
     PE_channel_ids = np.zeros(PhotonTruth.shape[0])
@@ -75,7 +75,7 @@ if __name__ == "__main__":
     
     index = 0
     for photon in tqdm(PhotonTruth):
-        channel_hit = np.asarray(rng.random() < PE_prob_cumsum[photon['EventID']]).nonzero()[0]
+        channel_hit = np.asarray(rng.random() < PE_prob_cumsum[photon['EventID']][:]).nonzero()[0]
         if channel_hit.shape[0] > 0:
             PE_event_ids[index] = photon['EventID']
             PE_channel_ids[index] = channel_hit[0]
