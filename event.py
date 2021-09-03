@@ -8,7 +8,7 @@ SIGMA = 5 # 正态分布的标准差
 TAU = 20 # 指数衰减函数e^(-t/tau)中的tau
 NORM_FACTOR = 69.15044738473783 # 期望的归一化系数
 T_MAX = 500 # 只考虑500ns以内产生的光子
-PRECISION = 1e5 # expectation取样时的间隔为其倒数
+PRECISION = 1000 # expectation取样时的间隔为其倒数
 
 
 def expectation(t):
@@ -17,7 +17,8 @@ def expectation(t):
     输入：时间t
     输出：期望值
     '''
-    return (quad(lambda s: np.exp(-t/TAU-(t/TAU-s)**2/50), 0, np.inf)[0] 
+    return (quad(lambda s: np.exp(-t/TAU-(t/TAU-s)**2/2/SIGMA/SIGMA),
+                 0, np.inf)[0]
             * NORM_FACTOR)
 
 def generate_events(number_of_events):
@@ -50,9 +51,17 @@ def generate_events(number_of_events):
     
     # 初始化expectation
     print("初始化expectation...")
-    expect_vect = np.vectorize(expectation)
-    expect_list = expect_vect(np.arange(0, T_MAX, 1/PRECISION))
+    step = 1/PRECISION
+    expect_list = np.arange(0, T_MAX+step, step)
+    for index, number in (enumerate(tqdm(np.arange(0, T_MAX, step)))):
+        expect_list[index] = expectation(number)
     print("初始化完成！")
+
+    # 线性插值
+    def linear_intp(t, expect_list, PRECISION):
+        floor = np.floor(t*PRECISION).astype(int)
+        return (((t*PRECISION) - floor) * expect_list[floor] +
+                (-(t*PRECISION) + floor + 1) * expect_list[floor+1])
 
     # 初始化rng
     rng = np.random.default_rng()
@@ -79,13 +88,12 @@ def generate_events(number_of_events):
         ('z', '<f8'),
         ('p', '<f8')
     ]
-    Particle_Truth = np.array(list(zip(
-        np.arange(number_of_events),
-        event_coordinates[:, 0]*1000,
-        event_coordinates[:, 1]*1000,
-        event_coordinates[:, 2]*1000,
-        np.zeros(number_of_events) + 1
-    )), dtype=par_tr_dtype)
+    Particle_Truth = np.zeros(number_of_events, dtype=par_tr_dtype)
+    Particle_Truth['EventID'] = np.arange(number_of_events)
+    Particle_Truth['x'] = event_coordinates[:, 0]*1000
+    Particle_Truth['y'] = event_coordinates[:, 1]*1000
+    Particle_Truth['z'] = event_coordinates[:, 2]*1000
+    Particle_Truth['p'] = np.zeros(number_of_events) + 1
     print("Particle_Truth表生成完成！")
 
     # 生成光子，先用齐次泊松分布，再用expectation来thin
@@ -93,23 +101,35 @@ def generate_events(number_of_events):
     photon_counts = np.round(
         rng.poisson(expectation(0)*T_MAX, number_of_events)
         ).astype(int)
-    gen_times = []
-    for photon_count in tqdm(photon_counts):
+
+    event_ids = np.zeros(sum(photon_counts)) #这是可能的最大shape
+    photon_ids = np.zeros(sum(photon_counts))
+    gen_times = np.zeros(sum(photon_counts))
+    start = 0
+
+    for event_id, photon_count in enumerate(tqdm(photon_counts)):
         gen_time = np.sort(rng.random(photon_count) * T_MAX)
-        expe_vec = np.vectorize(expectation)
         gen_time = gen_time[
-            rng.random(dtype=np.float32) < 
-            expect_list[gen_time.astype(int)*PRECISION]/expect_list[0]
+            rng.random() < linear_intp(gen_time, expect_list, PRECISION)
         ]
-        gen_times.append(gen_time)
+        real_photon_count = gen_time.shape[0]
+        event_ids[start:(start + real_photon_count)] = event_id
+        photon_ids[start:(start + real_photon_count)] = np.arange(real_photon_count)
+        gen_times[start:(start + real_photon_count)] = gen_time
+        start = start + real_photon_count
     
+    # 生成PhotonTruth
+    pho_tr_dtype = [
+        ('EventID', '<i4'),
+        ('PhotonID', '<i4'),
+        ('GenTime', '<f8')
+    ]
+    Photon_Truth = np.zeros(start, dtype=pho_tr_dtype)
+    Photon_Truth['EventID'] = event_ids[:start]
+    Photon_Truth['PhotonID'] = photon_ids[:start]
+    Photon_Truth['GenTime'] = gen_times[:start]
+    print("Photon_Truth表生成完成！")
+
     print("生成完成！")
-
-    return Particle_Truth, None
-    
-
-
-
-
-
+    return Particle_Truth, Photon_Truth
 
