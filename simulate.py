@@ -31,6 +31,7 @@ import argparse
 import numpy as np
 import h5py as h5
 from event import generate_events
+from genWaveform import get_waveform  
 from utils import save_file
 
 if __name__ == "__main__":
@@ -55,8 +56,8 @@ if __name__ == "__main__":
     
     PETruth = np.zeros(1)
 
-    # TODO: 波形
-    Waveform = np.zeros(1)
+    # 波形
+    Waveform = get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=0.01, noisetype='normal')
 
     # 保存文件
     save_file(args.opt, ParticleTruth, PETruth, Waveform)
