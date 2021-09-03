@@ -36,7 +36,7 @@ from get_prob_time import get_PE_probability, get_random_PE_time
 from genWaveform import get_waveform  
 from utils import save_file
 
-PMT_COUNT = 17612
+PMT_COUNT = 10
 
 if __name__ == "__main__":
 
@@ -58,16 +58,16 @@ if __name__ == "__main__":
     ParticleTruth, PhotonTruth = generate_events(args.n)
 
     # 光学过程
-    PE_prob_cumsum = np.zeros(arg.n)
+    PE_prob_cumsum = np.zeros((args.n, PMT_COUNT))
 
     for event in tqdm(ParticleTruth):
         for PMT in PMT_list:
-            PE_prob_array = np.zeros(17612)
+            PE_prob_array = np.zeros(PMT_COUNT)
             PE_prob_array[PMT['ChannelID']] = get_PE_probability(
-                event['x'], event['y'], event['z'],
+                event['x']/1000, event['y']/1000, event['z']/1000,
                 PMT['phi']/180*np.pi, PMT['theta']/180*np.pi
             )
-            PE_prob_cumsum[event['EventID']] = np.cumsum(PE_prob_array)
+            PE_prob_cumsum[event['EventID']][:] = np.cumsum(PE_prob_array)
     
     PE_event_ids = np.zeros(PhotonTruth.shape[0])
     PE_channel_ids = np.zeros(PhotonTruth.shape[0])
@@ -75,14 +75,14 @@ if __name__ == "__main__":
     
     index = 0
     for photon in tqdm(PhotonTruth):
-        channel_hit = np.asarray(rng.random() < PE_prob_cumsum[photon['EventID']]).nonzero()
+        channel_hit = np.asarray(rng.random() < PE_prob_cumsum[photon['EventID']]).nonzero()[0]
         if channel_hit.shape[0] > 0:
             PE_event_ids[index] = photon['EventID']
             PE_channel_ids[index] = channel_hit[0]
             PE_petimes[index] = photon['GenTime'] + get_random_PE_time(
-                ParticleTruth[photon['EventID']]['x'],
-                ParticleTruth[photon['EventID']]['y'],
-                ParticleTruth[photon['EventID']]['z'],
+                ParticleTruth[photon['EventID']]['x']/1000,
+                ParticleTruth[photon['EventID']]['y']/1000,
+                ParticleTruth[photon['EventID']]['z']/1000,
                 PMT_list[channel_hit[0]]['phi']/180*np.pi,
                 PMT_list[channel_hit[0]]['theta']/180*np.pi
             )
@@ -94,9 +94,9 @@ if __name__ == "__main__":
         ('PETime', '<f8')
     ]
     PETruth = np.zeros(index, dtype=pe_tr_dtype)
-    PETruth['EventID'] = PE_event_ids
-    PETruth['ChannelID'] = PE_channel_ids
-    PETruth['PETime'] = PE_petimes
+    PETruth['EventID'] = PE_event_ids[:index]
+    PETruth['ChannelID'] = PE_channel_ids[:index]
+    PETruth['PETime'] = PE_petimes[:index]
 
     # 波形
     Waveform = get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=0.01, noisetype='normal')
