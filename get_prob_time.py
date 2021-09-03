@@ -4,6 +4,8 @@ import multiprocessing
 from timeit import Timer
 import numexpr as ne
 
+ne.set_num_threads(2)
+
 # TODO: 光学部分
 n_water = 1.33
 n_LS = 1.48
@@ -151,15 +153,20 @@ def rotate(x, y, z, PMT_phi, PMT_theta, reflect_num):
         else:
             return x, y, z, 0, np.pi/2
 
-try_num = 10000
-try_phis = np.random.rand(try_num) * 2 * np.pi
-try_thetas = np.arccos(np.random.rand(try_num)*2 - 1)
+try_num = 100
+try_phi = np.linspace(0, 2*np.pi, try_num, endpoint=False)
+try_theta = np.arccos(np.linspace(1, -1, try_num))
+try_phis, try_thetas = np.meshgrid(try_phi, try_theta)
+try_phis = try_phis.flatten() + np.random.random(try_num**2) / try_num**2
+try_thetas= try_thetas.flatten() + np.random.random(try_num**2) / try_num**2
 
 vxs = np.sin(try_thetas) * np.cos(try_phis)
 vys = np.sin(try_thetas) * np.sin(try_phis)
 vzs = np.cos(try_thetas)
 try_velocities = np.stack((vxs, vys, vzs))
-try_intensities = np.ones(try_num)
+
+# try_velocities = gen_velocities(try_phi, try_theta)
+try_intensities = np.ones(try_num**2)
 
 def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
     if reflect_num == 0:
@@ -174,23 +181,24 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
     PMT_z = Ro * np.cos(PMT_theta)
 
     # Step1: 均匀发出试探光线
-    try_coordinates = gen_coordinates(try_num, x, y, z)
-    try_times = np.zeros(try_num)
+    try_coordinates = gen_coordinates(try_num**2, x, y, z)
+    try_times = np.zeros(try_num**2)
 
     # Step2: 寻找距离PMT中心一定距离的折射光
     try_new_coordinates, try_new_velocities = transist(try_coordinates, try_velocities, try_intensities, try_times)[:2]
-    try_PMT_coordinates = gen_coordinates(try_num, PMT_x, PMT_y, PMT_z)
+    try_PMT_coordinates = gen_coordinates(try_num**2, PMT_x, PMT_y, PMT_z)
     try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
 
     d_min = 0.510
     # 自动调节d_max，使得粗调得到一个恰当的范围（20根粗射光线）
     allow_num = 0
+    least_allow_num = 12
     for d_max in np.linspace(0.6, 5, 100):
         allowed_lights = (try_distances>d_min) * (try_distances<d_max)
         allow_num = np.sum(allowed_lights)
-        if allow_num > 12:
+        if allow_num > least_allow_num:
             break
-    if allow_num <= 12:
+    if allow_num <= least_allow_num:
         return 0, np.zeros(1)
     
     # print(f'dmax = {d_max}')
@@ -232,6 +240,11 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
 
 
 def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
+    '''
+    功能：给定顶点坐标与PMT坐标，返回顶点发出光子打到PMT上的期望
+    x, y, z单位为m
+    角度为弧度制
+    '''
     PMT_x = Ro * np.sin(PMT_theta) * np.cos(PMT_phi)
     PMT_y = Ro * np.sin(PMT_theta) * np.sin(PMT_phi)
     PMT_z = Ro * np.cos(PMT_theta)
@@ -246,6 +259,11 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
         return prob1 + prob2
 
 def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
+    '''
+    功能：给定顶点坐标与PMT坐标，返回一个光子可能到达PMT的时间
+    x, y, z单位为m
+    角度为弧度制
+    '''
     prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 100)
     prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 50)
     # print(prob1/prob2)
@@ -255,6 +273,18 @@ def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
     else:
         return np.random.choice(times2)
 
+def gen_data(x, y, z, PMT_phi, PMT_theta):
+    '''
+    功能：给定顶点坐标与PMT坐标，返回插值时该点所需要的所有数据
+        （一次折射到达的概率， 一次反射+一次折射到达的概率， 
+        一次折射光子的平均到达时间， 一次反射到达光子的平均到达时间， 
+        标准差1， 标准差2）
+    x, y, z单位为m
+    角度为弧度制
+    '''
+    prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 500)
+    prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 200)
+    return prob1, prob2, times1.mean(), times2.mean(), times1.std(), times2.std()
 
 
 
@@ -269,12 +299,27 @@ def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
 # print(get_random_PE_time(3,6,-10,0,0))
 # to = time()
 # print(f'time = {to-ti}')
-# x = np.random.random(200) * 10
-# y = np.random.random(200) * 10
-# z = np.random.random(200) * 10
+x = np.random.random(200) * 10
+y = np.random.random(200) * 10
+z = np.random.random(200) * 10
 
-# if __name__ == '__main__':
-    # print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(20))
+if __name__ == '__main__':
+    print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(400))
     # for i in range(200):
     #    get_PE_probability(x[i], y[i], z[i],0,0)
     # print(get_PE_probability(3, 6, 10,0,0))
+    # get_PE_probability(np.random.rand()*10, np.random.rand()*10, np.random.rand()*10,0,0)
+    # for i in range(4000):
+    #     try_phis = np.random.rand(try_num) * 2 * np.pi
+    #     try_thetas = np.arccos(np.random.rand(try_num)*2 - 1)
+
+    #     vxs = np.sin(try_thetas) * np.cos(try_phis)
+    #     vys = np.sin(try_thetas) * np.sin(try_phis)
+    #     vzs = np.cos(try_thetas)
+    #     try_velocities = np.stack((vxs, vys, vzs))
+    #     try_intensities = np.ones(try_num)
+    #     res = get_PE_probability(3, 6, 10,0,0)
+    #     print(res)
+    #     if np.abs(res*1000000-494)> 10:
+    #         print("error", res)
+    #         break
