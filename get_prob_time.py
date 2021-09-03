@@ -240,6 +240,11 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
 
 
 def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
+    '''
+    功能：给定顶点坐标与PMT坐标，返回顶点发出光子打到PMT上的期望
+    x, y, z单位为m
+    角度为弧度制
+    '''
     PMT_x = Ro * np.sin(PMT_theta) * np.cos(PMT_phi)
     PMT_y = Ro * np.sin(PMT_theta) * np.sin(PMT_phi)
     PMT_z = Ro * np.cos(PMT_theta)
@@ -254,6 +259,11 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
         return prob1 + prob2
 
 def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
+    '''
+    功能：给定顶点坐标与PMT坐标，返回一个光子可能到达PMT的时间
+    x, y, z单位为m
+    角度为弧度制
+    '''
     prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 100)
     prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 50)
     # print(prob1/prob2)
@@ -263,6 +273,18 @@ def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
     else:
         return np.random.choice(times2)
 
+def gen_data(x, y, z, PMT_phi, PMT_theta):
+    '''
+    功能：给定顶点坐标与PMT坐标，返回插值时该点所需要的所有数据
+        （一次折射到达的概率， 一次反射+一次折射到达的概率， 
+        一次折射光子的平均到达时间， 一次反射到达光子的平均到达时间， 
+        标准差1， 标准差2）
+    x, y, z单位为m
+    角度为弧度制
+    '''
+    prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 500)
+    prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 200)
+    return prob1, prob2, times1.mean(), times2.mean(), times1.std(), times2.std()
 
 
 
