@@ -28,12 +28,12 @@ def transist_once(coordinates, velocities, intensities, times):
     edge_points = coordinates + ts * velocities
     
     # 计算增加的时间
-    new_times = times + ts/c*n_LS
+    new_times = times + (n_LS/c)*ts
 
     # 计算入射角，出射角
     normal_vectors = -edge_points / Ri
     incidence_vectors = velocities
-    vertical_of_incidence = np.clip(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1, 1)
+    vertical_of_incidence = np.maximum(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1)
     incidence_angles = np.arccos(-vertical_of_incidence)
     
     
@@ -51,7 +51,7 @@ def transist_once(coordinates, velocities, intensities, times):
     new_coordinates = edge_points
 
     # 计算折射系数
-    emergence_angles = np.arccos(np.clip(np.einsum('kn, kn->n', new_velocities, -normal_vectors), -1, 1))
+    emergence_angles = np.arccos(np.minimum(np.einsum('kn, kn->n', new_velocities, -normal_vectors), 1))
     Rs = ne.evaluate('(sin(emergence_angles - incidence_angles)/sin(emergence_angles + incidence_angles))**2')
     Rp = ne.evaluate('(tan(emergence_angles - incidence_angles)/tan(emergence_angles + incidence_angles))**2')
     R = (Rs+Rp)/2
@@ -73,7 +73,7 @@ def transist_twice(coordinates, velocities, intensities, times):
 def distance(coordinates, velocities, PMT_coordinates):
     new_ts = np.einsum('kn, kn->n', PMT_coordinates - coordinates, velocities)
     nearest_points = coordinates + new_ts * velocities
-    distances = np.sqrt(np.einsum('kn, kn->n', nearest_points - PMT_coordinates, nearest_points - PMT_coordinates)) * (new_ts>0)
+    distances = np.linalg.norm(nearest_points - PMT_coordinates, axis=0) * (new_ts>0)
     return distances
 
 
@@ -85,12 +85,9 @@ def gen_coordinates(len, x, y, z):
     return coordinates
 
 def gen_velocities(phis, thetas):
-    phi, theta = np.meshgrid(phis, thetas)
-    phi_d = phi.ravel()
-    theta_d = theta.ravel()
-    vxs = np.sin(theta_d) * np.cos(phi_d)
-    vys = np.sin(theta_d) * np.sin(phi_d)
-    vzs = np.cos(theta_d)
+    vxs = (np.sin(thetas) * np.cos(phis.reshape(-1, 1))).reshape(-1)
+    vys = (np.sin(thetas) * np.sin(phis.reshape(-1, 1))).reshape(-1)
+    vzs = np.tile(np.cos(thetas), phis.shape[0])
     velocities = np.stack((vxs, vys, vzs))
     return velocities
 
@@ -99,28 +96,26 @@ def hit_PMT(coordinates, velocities, intensities, times, PMT_coordinates):
     # 取出所有能到达PMT的光线
     distances = distance(coordinates, velocities, PMT_coordinates)
     hit_PMT = (distances>0) * (distances<r_PMT)
-    allowed_index = np.where(hit_PMT)[0]
-    allowed_coordinates = coordinates[:, allowed_index]
-    allowed_velocities = velocities[:, allowed_index]
-    allowed_intensities = intensities[allowed_index]
-    allowed_times = times[allowed_index]
-    allowed_PMT_coordinates = PMT_coordinates[:, :allowed_index.shape[0]]
+    allowed_coordinates = coordinates[:, hit_PMT]
+    allowed_velocities = velocities[:, hit_PMT]
+    allowed_intensities = intensities[hit_PMT]
+    allowed_times = times[hit_PMT]
+    allowed_PMT_coordinates = PMT_coordinates[:, :allowed_times.shape[0]]
    
     # 计算到达时间
     PMT2edge = allowed_coordinates - allowed_PMT_coordinates
     ts = -np.einsum('kn, kn->n', PMT2edge, allowed_velocities) +\
           np.sqrt(np.einsum('kn, kn->n', PMT2edge, allowed_velocities)**2 - np.einsum('kn, kn->n', PMT2edge, PMT2edge) + r_PMT**2)
-    all_times = allowed_times + ts/c*n_water
+    all_times = allowed_times + (n_water/c)*ts
     edge_points = allowed_coordinates + ts * allowed_velocities
 
     # 计算入射角，出射角
     normal_vectors = (edge_points - allowed_PMT_coordinates) / r_PMT
     incidence_vectors = allowed_velocities
-    vertical_of_incidence = np.clip(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1, 1)
-    incidence_angles = np.arccos(-vertical_of_incidence)
+    incidence_angles = np.arccos(-np.maximum(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1))
 
     # Bonus: 计算进入PMT的折射系数
-    emergence_angles = np.arccos(np.clip(np.einsum('kn, kn->n', allowed_velocities, -normal_vectors), -1, 1))
+    emergence_angles = np.arccos(np.minimum(np.einsum('kn, kn->n', allowed_velocities, -normal_vectors), 1))
     Rs = ne.evaluate('(sin(emergence_angles - incidence_angles)/sin(emergence_angles + incidence_angles))**2')
     Rp = ne.evaluate('(tan(emergence_angles - incidence_angles)/tan(emergence_angles + incidence_angles))**2')
     R = (Rs+Rp)/2
@@ -156,7 +151,7 @@ def rotate(x, y, z, PMT_phi, PMT_theta, reflect_num):
         else:
             return x, y, z, 0, np.pi/2
 
-try_num = 20000
+try_num = 10000
 try_phis = np.random.rand(try_num) * 2 * np.pi
 try_thetas = np.arccos(np.random.rand(try_num)*2 - 1)
 
@@ -189,20 +184,21 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
 
     d_min = 0.510
     # 自动调节d_max，使得粗调得到一个恰当的范围（20根粗射光线）
+    allow_num = 0
     for d_max in np.linspace(0.6, 5, 100):
-        global valid_index, allow_num
         allowed_lights = (try_distances>d_min) * (try_distances<d_max)
-        valid_index = np.where(allowed_lights)[0]
-        allow_num = valid_index.shape[0]
-        if allow_num > 20:
+        allow_num = np.sum(allowed_lights)
+        if allow_num > 12:
             break
-    if allow_num <= 20:
+    if allow_num <= 12:
         return 0, np.zeros(1)
+    
+    # print(f'dmax = {d_max}')
     # print(f'allowed = {allow_num}')
-    allowed_phis = try_phis[valid_index]
+    allowed_phis = try_phis[allowed_lights]
     phi_start = allowed_phis.min()
     phi_end = allowed_phis.max()
-    allowed_thetas = try_thetas[valid_index]
+    allowed_thetas = try_thetas[allowed_lights]
     theta_start = allowed_thetas.min()
     theta_end = allowed_thetas.max()
 
@@ -243,15 +239,15 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
     if naive:
         return r_PMT**2/(4*d**2)  # 平方反比模式
     else:
-        prob1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 500)[0]
-        prob2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 200)[0]
+        prob1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 150)[0]
+        prob2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 100)[0]
         # print(prob1)
         # print(prob2)
         return prob1 + prob2
 
 def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
-    prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 500)
-    prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 200)
+    prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 100)
+    prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 50)
     # print(prob1/prob2)
     p = np.random.rand()
     if p < prob1/(prob1+prob2):     # 即一次折射无反射
@@ -273,6 +269,12 @@ def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
 # print(get_random_PE_time(3,6,-10,0,0))
 # to = time()
 # print(f'time = {to-ti}')
-if __name__ == '__main__':
-    print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(100))
+# x = np.random.random(200) * 10
+# y = np.random.random(200) * 10
+# z = np.random.random(200) * 10
 
+# if __name__ == '__main__':
+    # print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(20))
+    # for i in range(200):
+    #    get_PE_probability(x[i], y[i], z[i],0,0)
+    # print(get_PE_probability(3, 6, 10,0,0))
