@@ -100,7 +100,7 @@ def get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal
 
     # 同事件同PMT波形叠加
     WF_pd = pd.DataFrame.from_records(WF.tolist(), columns=['EventID', 'ChannelID', 'Waveform'])
-    WF_pd = WF_pd.groupby(['EventID', 'ChannelID'], sort=False).apply(np.sum)
+    WF_pd = WF_pd.groupby(['EventID', 'ChannelID'], as_index=False).agg({'Waveform': np.sum})
     WF = WF_pd.to_records(index=False).astype([('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
 
     # 返回Waveform表
