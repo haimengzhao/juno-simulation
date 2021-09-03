@@ -31,14 +31,14 @@ if __name__ == '__main__':
     ti = time()
 
     # 多线程
-    pool = multiprocessing.Pool(processes=32)
+    pool = multiprocessing.Pool(processes=7)
     # 进度条
     pbar = tqdm(total=precision*precision)
 
     # 模拟光线
     res = np.array([pool.apply_async(prob.get_PE_probability, (xs[t], ys[t], zs[t], 0, 0), callback=lambda *x: pbar.update()) for t in range(precision*precision)])
     res = np.frompyfunc((lambda x: x.get()), 1, 1)(res)
-    res = np.clip(res.reshape(precision, precision).astype(np.float128), 5e-5, np.inf)
+    res = np.clip(res.reshape(precision, precision).astype(np.float128), 8e-5, np.inf)
     pool.close()
     pool.join()
 
