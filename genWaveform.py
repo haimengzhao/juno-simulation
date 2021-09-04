@@ -129,8 +129,34 @@ def get_waveform_bychunk(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype
     返回:
     Waveform (Structured Array) [EventID, ChannelID, Waveform]
     '''
-    Events, Eindex = np.unique(PETruth['EventID'], return_index=True)
-    waveform = get_waveform(PETruth[Eindex[0]:Eindex[1]], ampli, td, tr, ratio, noisetype)
-    for i in tqdm(range(1, len(Eindex)-1)):
-        waveform = np.vstack([waveform, get_waveform(PETruth[Eindex[i]:Eindex[i+1]], ampli, td, tr, ratio, noisetype)])
+
+    EventID = PETruth['EventID']
+
+    Events, Eindex = np.unique(EventID, return_index=True)
+    Eindex = np.hstack([Eindex, np.array(len(EventID))])
+
+
+    # 分Event生成
+    if len(Eindex) > 1:
+        waveform = get_waveform(PETruth[Eindex[0]:Eindex[1]], ampli, td, tr, ratio, noisetype)
+        EventID = waveform['EventID']
+        ChannelID = waveform['ChannelID']
+        WF = waveform['Waveform']
+        for i in tqdm(range(1, len(Eindex)-1)):
+            waveform = get_waveform(PETruth[Eindex[i]:Eindex[i+1]], ampli, td, tr, ratio, noisetype)
+            EventID = np.hstack([EventID, waveform['EventID']])
+            ChannelID = np.hstack([ChannelID, waveform['ChannelID']])
+            WF = np.vstack([WF, waveform['Waveform']])
+    else:
+        waveform = get_waveform(PETruth, ampli, td, tr, ratio, noisetype)
+        EventID = waveform['EventID']
+        ChannelID = waveform['ChannelID']
+        WF = waveform['Waveform']
+
+    WF = np.array(list(zip(
+        PETruth['EventID'], 
+        PETruth['ChannelID'], 
+        list(map(lambda x: x.reshape(-1), np.split(WF, len(WF), axis=0)))
+        )), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+
     return waveform
