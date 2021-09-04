@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 '''
 电子学任务
@@ -73,37 +74,46 @@ def get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal
     '''
     
     # 读取PETruth
-    EventID = PETruth['EventID']
-    ChannelID = PETruth['ChannelID']
-    PETime = PETruth['PETime']
+    # 为了节省内存不再使用
+    # EventID = PETruth['EventID']
+    # ChannelID = PETruth['ChannelID']
+    # PETime = PETruth['PETime']
 
-    length = len(PETime)
+    length = len(PETruth)
 
     # 采样
     t = np.tile(np.arange(0, 1000, 1), (length, 1))
 
     # 生成Waveform
     if noisetype == 'normal':
-        Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETime.reshape(-1, 1), ampli, td, tr)
+        Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth['PETime'].reshape(-1, 1), ampli, td, tr)
     elif noisetype == 'sin':
-        Waveform = sin_noise(t, np.pi/1e30, ratio * ampli) + double_exp_model(t - PETime.reshape(-1, 1), ampli, td, tr)
+        Waveform = sin_noise(t, np.pi/1e30, ratio * ampli) + double_exp_model(t - PETruth['PETime'].reshape(-1, 1), ampli, td, tr)
     else:
         print(f'{noisetype} noise not implemented, use normal noise instead!')
-        Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETime.reshape(-1, 1), ampli, td, tr)
+        Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth['PETime'].reshape(-1, 1), ampli, td, tr)
 
     # 拼接Waveform表
     WF = np.array(list(zip(
-        EventID, 
-        ChannelID, 
+        PETruth['EventID'], 
+        PETruth['ChannelID'], 
         list(map(lambda x: x.reshape(-1), np.split(Waveform, length, axis=0)))
         )), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
 
     # 同事件同PMT波形叠加
     WF_pd = pd.DataFrame.from_records(WF.tolist(), columns=['EventID', 'ChannelID', 'Waveform'])
+    # 释放内存
+    del WF
     WF_pd = WF_pd.groupby(['EventID', 'ChannelID'], as_index=False).agg({'Waveform': np.sum})
     WF = WF_pd.to_records(index=False).astype([('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
-
+    del WF_pd
     # 返回Waveform表
     return WF
 
 
+def get_waveform_bychunk(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal'):
+    Events, Eindex = np.unique(PETruth['EventID'], return_index=True)
+    waveform = get_waveform(PETruth[Eindex[0]:Eindex[1]], ampli, td, tr, ratio, noisetype)
+    for i in tqdm(range(1, len(Eindex)-1)):
+        waveform = np.vstack([waveform, get_waveform(PETruth[Eindex[i]:Eindex[i+1]], ampli, td, tr, ratio, noisetype)])
+    return waveform
