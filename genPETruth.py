@@ -21,17 +21,19 @@ def gen_interp():
     生成插值函数，使用其中的插值函数来近似get_PE_probability与get_random_PE_time
     '''
     print("正在生成插值函数...")
+
     # 插值用网格
     ro = np.linspace(0.2, LS_RADIUS, PRECISION)
-    theta = np.linspace(0, 2*np.pi, PRECISION, endpoint=False)
+    theta = np.linspace(0, np.pi, PRECISION)
     ros, thetas = np.meshgrid(ro, theta)
+
     # 测试点: yz平面
     xs = (np.zeros((PRECISION, PRECISION))).flatten()
     ys = (np.sin(thetas) * ros).flatten()
     zs = (np.cos(thetas) * ros).flatten()
 
-    # 多线程
     prob_t, prob_r, mean_t, mean_r, std_t, std_r = np.zeros((6, PRECISION, PRECISION))
+   
     # 多线程
     pool = multiprocessing.Pool(processes=16)
     # 进度条
