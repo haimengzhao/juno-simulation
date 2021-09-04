@@ -17,7 +17,7 @@ def gen_interp():
     
     # 插值用网格
     ro = np.linspace(0.2, 17.7, PRECISION)
-    theta = np.linspace(0, 2*np.pi, PRECISION, endpoint=False)
+    theta = np.linspace(0, np.pi, PRECISION)
     ros, thetas = np.meshgrid(ro, theta)
     # 测试点: yz平面
     xs = (np.zeros((PRECISION, PRECISION))).flatten()
@@ -27,7 +27,7 @@ def gen_interp():
     # 多线程
     prob_t, prob_r, mean_t, mean_r, std_t, std_r = np.zeros((6, PRECISION, PRECISION))
     # 多线程
-    pool = multiprocessing.Pool(processes=5)
+    pool = multiprocessing.Pool(processes=6)
     # 进度条
     pbar = tqdm(total=PRECISION*PRECISION)
 
@@ -53,4 +53,7 @@ def gen_interp():
 gpt, gpr = gen_interp()[:2]
 
 def allprob(r, theta):
-    return gpt(r, theta) + gpr(r, theta)
+    if theta > np.pi:
+        return allprob(r, 2*np.pi-theta)
+    else:
+        return gpt(r, theta) + gpr(r, theta)

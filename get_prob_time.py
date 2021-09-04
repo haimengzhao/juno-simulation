@@ -271,7 +271,7 @@ def gen_data(x, y, z, PMT_phi, PMT_theta):
     x, y, z单位为m
     角度为弧度制
     '''
-    prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 500)
+    prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 400)
     prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 150)
     return prob1, prob2, times1.mean(), times2.mean(), times1.std(), times2.std()
 
