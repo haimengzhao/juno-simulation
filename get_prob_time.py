@@ -182,16 +182,14 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
     try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
 
     d_min = 0.510
-    least_allow_num = 16
-    # 自动调节d_max，使得粗调得到一个恰当的范围（20根粗射光线）
-    allow_num = 0
-    for d_max in np.linspace(0.6, 5, 100):
-        allowed_lights = (try_distances>d_min) * (try_distances<d_max)
-        allow_num = np.sum(allowed_lights)
-        if allow_num > least_allow_num:
-            break
-    if allow_num <= least_allow_num:
+    least_allow_num = 17
+    # 通过排序选择d_max
+    sorted_distances = np.sort(try_distances)
+    if sorted_distances[-least_allow_num] < d_min:
         return 0, np.zeros(1)
+    else:
+        d_max = sorted_distances[(sorted_distances>d_min).argmax() + least_allow_num-1]
+    allowed_lights = (try_distances>d_min) * (try_distances<=d_max)
     
     # print(f'dmax = {d_max}')
     # print(f'allowed = {allow_num}')
@@ -244,8 +242,8 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
     if naive:
         return r_PMT**2/(4*d**2)  # 平方反比模式
     else:
-        prob1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 100)[0]
-        prob2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 200)[0]
+        prob1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 150)[0]
+        prob2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 100)[0]
         # print(prob1)
         # print(prob2)
         return prob1 + prob2
@@ -296,10 +294,10 @@ y = np.random.random(200) * 10
 z = np.random.random(200) * 10
 
 if __name__ == '__main__':
-    # print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(400))
+    print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(400))
     # for i in range(200):
     #    get_PE_probability(x[i], y[i], z[i],0,0)
-    print(get_PE_probability(12.5, 0, 12.5,0,0))
+    # print(get_PE_probability(3, 6, 10,0,0))
     # get_PE_probability(np.random.rand()*10, np.random.rand()*10, np.random.rand()*10,0,0)
     # for i in range(4000):
     #     try_phis = np.random.rand(try_num) * 2 * np.pi
