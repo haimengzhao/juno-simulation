@@ -112,6 +112,23 @@ def get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal
 
 
 def get_waveform_bychunk(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal'):
+    '''
+    根据PETruth生成波形(对于每个Event分步进行,以节省内存)
+
+    输入输出与get_waveform相同:
+
+    输入: PETruth (Structured Array) [EventID, ChannelID, PETime]
+
+    参数:
+    ampli, 波形高度;
+    td, 整体衰减时间;
+    tr, 峰值位置;
+    ratio, 噪声振幅/波形高度;
+    noisetype, 噪声形式: 'normal' 正态分布噪声, 'sin' 正弦噪声; 
+
+    返回:
+    Waveform (Structured Array) [EventID, ChannelID, Waveform]
+    '''
     Events, Eindex = np.unique(PETruth['EventID'], return_index=True)
     waveform = get_waveform(PETruth[Eindex[0]:Eindex[1]], ampli, td, tr, ratio, noisetype)
     for i in tqdm(range(1, len(Eindex)-1)):
