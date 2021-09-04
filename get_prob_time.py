@@ -241,8 +241,8 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
     if naive:
         return r_PMT**2/(4*d**2)  # 平方反比模式
     else:
-        prob1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 150)[0]
-        prob2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 100)[0]
+        prob1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 400)[0]
+        prob2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 150)[0]
         # print(prob1)
         # print(prob2)
         return prob1 + prob2
@@ -271,8 +271,8 @@ def gen_data(x, y, z, PMT_phi, PMT_theta):
     x, y, z单位为m
     角度为弧度制
     '''
-    prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 500)
-    prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 200)
+    prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 150)
+    prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 100)
     return prob1, prob2, times1.mean(), times2.mean(), times1.std(), times2.std()
 
 
@@ -288,12 +288,12 @@ def gen_data(x, y, z, PMT_phi, PMT_theta):
 # print(get_random_PE_time(3,6,-10,0,0))
 # to = time()
 # print(f'time = {to-ti}')
-x = np.random.random(200) * 10
-y = np.random.random(200) * 10
-z = np.random.random(200) * 10
+# x = np.random.random(200) * 10
+# y = np.random.random(200) * 10
+# z = np.random.random(200) * 10
 
-if __name__ == '__main__':
-    print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(4000))
+# if __name__ == '__main__':
+    # print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(4000))
     # for i in range(200):
     #    get_PE_probability(x[i], y[i], z[i],0,0)
     # print(get_PE_probability(3, 6, 10,0,0))
