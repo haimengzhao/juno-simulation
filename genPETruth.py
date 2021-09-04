@@ -99,7 +99,6 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
                 get_std_r(r, theta)
             )
             )
-
     PE_prob_cumsum = np.zeros((number_of_events, PMT_COUNT))
     PE_prob_array = np.zeros((number_of_events, PMT_COUNT, 2))
 
@@ -121,6 +120,7 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
     PE_event_ids = np.zeros(PhotonTruth.shape[0])
     PE_channel_ids = np.zeros(PhotonTruth.shape[0])
     PE_petimes = np.zeros(PhotonTruth.shape[0])
+    parameters_of_time = np.zeros((PhotonTruth.shape[0], 7))
     
     index = 0
     for photon in tqdm(PhotonTruth):
@@ -128,7 +128,8 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
         if channel_hit.shape[0] > 0:
             PE_event_ids[index] = photon['EventID']
             PE_channel_ids[index] = channel_hit[0]
-            PE_petimes[index] = photon['GenTime'] + intp_random_PE_time(
+            PE_petimes[index] = photon['GenTime']
+            parameters_of_time[index][:] = [
                 ParticleTruth[photon['EventID']]['x']/1000,
                 ParticleTruth[photon['EventID']]['y']/1000,
                 ParticleTruth[photon['EventID']]['z']/1000,
@@ -136,8 +137,17 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
                 PMT_list[channel_hit[0]]['theta']/180*np.pi,
                 PE_prob_array[event['EventID']][channel_hit[0]][0],
                 PE_prob_array[event['EventID']][channel_hit[0]][1]
-            )
+            ]
             index += 1
+    PE_petimes[:index] += intp_random_PE_time(
+        parameters_of_time[:index][:,0],
+        parameters_of_time[:index][:,1],
+        parameters_of_time[:index][:,2],
+        parameters_of_time[:index][:,3],
+        parameters_of_time[:index][:,4],
+        parameters_of_time[:index][:,5],
+        parameters_of_time[:index][:,6],
+    )
 
     print("正在生成PETruth表...")
     pe_tr_dtype = [
