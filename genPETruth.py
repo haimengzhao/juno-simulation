@@ -89,7 +89,7 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
         '''
         r, theta = to_relative_position(x, y, z, PMT_phi, PMT_theta)
         return np.where(
-            rng.random(r.shape[0]) < prob_t / (prob_t + prob_r),
+            rng.random(r.shape) < prob_t / (prob_t + prob_r),
             rng.normal(
                 get_mean_t(r, theta),
                 get_std_t(r, theta)
@@ -122,60 +122,22 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
     PE_channel_ids = np.zeros(PhotonTruth.shape[0])
     PE_petimes = np.zeros(PhotonTruth.shape[0])
     
-    # 一次读进CHUNK个光子，以避免内存占用太大
-    start_index = 0
-    for i in tqdm(range(PhotonTruth.shape[0] // CHUNK)):
-        judger = np.asarray(
-            np.tile(rng.random(CHUNK), (PMT_COUNT, 1)).T <
-            PE_prob_cumsum[PhotonTruth[i:(i+CHUNK)]['EventID']][:]
-        ).nonzero()
-        photon_hit, channel_judger = np.unique(judger[0], return_index=True)
-        channel_hit = judger[1][channel_judger]
-        
-        end_index = start_index + channel_hit.shape[0]
-
-        PE_event_ids[start_index:end_index] = \
-            PhotonTruth[photon_hit]['EventID']
-        PE_channel_ids[start_index:end_index] = \
-            channel_hit
-        PE_petimes[start_index:end_index] = \
-            PhotonTruth[photon_hit]['GenTime'] + intp_random_PE_time(
-                ParticleTruth[PhotonTruth[photon_hit]['EventID']]['x']/1000,
-                ParticleTruth[PhotonTruth[photon_hit]['EventID']]['y']/1000,
-                ParticleTruth[PhotonTruth[photon_hit]['EventID']]['z']/1000,
-                PMT_list[channel_hit]['phi']/180*np.pi,
-                PMT_list[channel_hit]['theta']/180*np.pi,
-                PE_prob_array[PhotonTruth[photon_hit]['EventID'], channel_hit, 0],
-                PE_prob_array[PhotonTruth[photon_hit]['EventID'], channel_hit, 1]
+    index = 0
+    for photon in tqdm(PhotonTruth):
+        channel_hit = np.asarray(rng.random() < PE_prob_cumsum[photon['EventID']][:]).nonzero()[0]
+        if channel_hit.shape[0] > 0:
+            PE_event_ids[index] = photon['EventID']
+            PE_channel_ids[index] = channel_hit[0]
+            PE_petimes[index] = photon['GenTime'] + intp_random_PE_time(
+                ParticleTruth[photon['EventID']]['x']/1000,
+                ParticleTruth[photon['EventID']]['y']/1000,
+                ParticleTruth[photon['EventID']]['z']/1000,
+                PMT_list[channel_hit[0]]['phi']/180*np.pi,
+                PMT_list[channel_hit[0]]['theta']/180*np.pi,
+                PE_prob_array[event['EventID']][channel_hit[0]][0],
+                PE_prob_array[event['EventID']][channel_hit[0]][1]
             )
-        
-        start_index = end_index
-
-    remaining_count = PhotonTruth.shape[0] % CHUNK
-    if remaining_count != 0:
-        judger = np.asarray(
-            np.tile(rng.random(remaining_count), (PMT_COUNT, 1)).T <
-            PE_prob_cumsum[PhotonTruth[(PhotonTruth.shape[0]//CHUNK*CHUNK):]['EventID']][:]
-        ).nonzero()
-        photon_hit, channel_judger = np.unique(judger[0], return_index=True)
-        channel_hit = judger[1][channel_judger]
-        
-        end_index = start_index + channel_hit.shape[0]
-
-        PE_event_ids[start_index:end_index] = \
-            PhotonTruth[photon_hit]['EventID']
-        PE_channel_ids[start_index:end_index] = \
-            channel_hit
-        PE_petimes[start_index:end_index] = \
-            PhotonTruth[photon_hit]['GenTime'] + intp_random_PE_time(
-                ParticleTruth[PhotonTruth[photon_hit]['EventID']]['x']/1000,
-                ParticleTruth[PhotonTruth[photon_hit]['EventID']]['y']/1000,
-                ParticleTruth[PhotonTruth[photon_hit]['EventID']]['z']/1000,
-                PMT_list[channel_hit]['phi']/180*np.pi,
-                PMT_list[channel_hit]['theta']/180*np.pi,
-                PE_prob_array[PhotonTruth[photon_hit]['EventID'], channel_hit, 0],
-                PE_prob_array[PhotonTruth[photon_hit]['EventID'], channel_hit, 1]
-            )
+            index += 1
 
     print("正在生成PETruth表...")
     pe_tr_dtype = [
@@ -183,10 +145,22 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
         ('ChannelID', '<i4'),
         ('PETime', '<f8')
     ]
-    PETruth = np.zeros(end_index, dtype=pe_tr_dtype)
-    PETruth['EventID'] = PE_event_ids[:end_index]
-    PETruth['ChannelID'] = PE_channel_ids[:end_index]
-    PETruth['PETime'] = PE_petimes[:end_index]
+    PETruth = np.zeros(index, dtype=pe_tr_dtype)
+    PETruth['EventID'] = PE_event_ids[:index]
+    PETruth['ChannelID'] = PE_channel_ids[:index]
+    PETruth['PETime'] = PE_petimes[:index]
+    start_index = 0
+
+    print("正在生成PETruth表...")
+    pe_tr_dtype = [
+        ('EventID', '<i4'),
+        ('ChannelID', '<i4'),
+        ('PETime', '<f8')
+    ]
+    PETruth = np.zeros(index, dtype=pe_tr_dtype)
+    PETruth['EventID'] = PE_event_ids[:index]
+    PETruth['ChannelID'] = PE_channel_ids[:index]
+    PETruth['PETime'] = PE_petimes[:index]
 
     print("PETruth表生成完毕！")
     return PETruth
