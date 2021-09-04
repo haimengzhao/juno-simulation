@@ -24,9 +24,8 @@ def transist_once(coordinates, velocities, intensities, times):
     intensities: (n,)
     '''
     # 求解折射点
-    ts = (-np.einsum('kn, kn->n', coordinates, velocities) +\
-           np.sqrt(np.einsum('kn, kn->n', coordinates, velocities)**2 -\
-          (np.einsum('kn, kn->n', coordinates, coordinates)-Ri**2)))     #到达液闪边界的时间
+    cv = np.einsum('kn, kn->n', coordinates, velocities)
+    ts = -cv + np.sqrt(cv**2 - (np.einsum('kn, kn->n', coordinates, coordinates)-Ri**2))    #到达液闪边界的时间
     edge_points = coordinates + ts * velocities
     
     # 计算增加的时间
@@ -165,7 +164,7 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
         transist = transist_once
     elif reflect_num == 1:
         transist = transist_twice
-    # Step0： 将PMT转到(pi, pi/2)处
+    # Step0: 预转动PMT
     x, y, z, PMT_phi, PMT_theta = rotate(x, y, z, PMT_phi, PMT_theta, reflect_num)
     # 读取PMT坐标信息
     PMT_x = Ro * np.sin(PMT_theta) * np.cos(PMT_phi)
@@ -294,7 +293,7 @@ y = np.random.random(200) * 10
 z = np.random.random(200) * 10
 
 if __name__ == '__main__':
-    print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(400))
+    print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(4000))
     # for i in range(200):
     #    get_PE_probability(x[i], y[i], z[i],0,0)
     # print(get_PE_probability(3, 6, 10,0,0))
