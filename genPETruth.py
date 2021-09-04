@@ -2,7 +2,7 @@ from time import time
 import numpy as np
 from tqdm import tqdm
 import multiprocessing
-from scipy.interpolate import interp2d
+from scipy.interpolate import RectBivariateSpline
 import numexpr as ne
 import utils
 from get_prob_time import gen_data
@@ -48,12 +48,12 @@ def gen_interp():
             prob_t[i, j], prob_r[i, j], mean_t[i, j], mean_r[i, j], std_t[i, j], std_r[i, j] = t
 
     # 插值函数
-    get_prob_t = interp2d(ro, theta, prob_t)
-    get_prob_r = interp2d(ro, theta, prob_r)
-    get_mean_t = interp2d(ro, theta, mean_t)
-    get_mean_r = interp2d(ro, theta, mean_r)
-    get_std_t = interp2d(ro, theta, std_t)
-    get_std_r = interp2d(ro, theta, std_r)
+    get_prob_t = RectBivariateSpline(ro, theta, prob_t, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
+    get_prob_r = RectBivariateSpline(ro, theta, prob_r, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
+    get_mean_t = RectBivariateSpline(ro, theta, mean_t, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
+    get_mean_r = RectBivariateSpline(ro, theta, mean_r, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
+    get_std_t = RectBivariateSpline(ro, theta, std_t, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
+    get_std_r = RectBivariateSpline(ro, theta, std_r, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
     
     print("插值函数生成完毕！")
     return get_prob_t, get_prob_r, get_mean_t, get_mean_r, get_std_t, get_std_r
