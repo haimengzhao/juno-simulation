@@ -75,15 +75,12 @@ def transist_twice(coordinates, velocities, intensities, times):
 def distance(coordinates, velocities, PMT_coordinates):
     new_ts = np.einsum('kn, kn->n', PMT_coordinates - coordinates, velocities)
     nearest_points = coordinates + new_ts * velocities
-    distances = np.linalg.norm(nearest_points - PMT_coordinates, axis=0) * (new_ts>0)
+    distances = np.linalg.norm(nearest_points - PMT_coordinates, axis=0) * np.sign(new_ts) 
     return distances
 
 
-def gen_coordinates(len, x, y, z):
-    coordinate_x = np.full(len, x)
-    coordinate_y = np.full(len, y)
-    coordinate_z = np.full(len, z)
-    coordinates = np.stack((coordinate_x, coordinate_y, coordinate_z))
+def gen_coordinates(x, y, z):
+    coordinates = np.array([x, y, z]).reshape(3, 1)
     return coordinates
 
 def gen_velocities(phis, thetas):
@@ -153,20 +150,15 @@ def rotate(x, y, z, PMT_phi, PMT_theta, reflect_num):
         else:
             return x, y, z, 0, np.pi/2
 
-try_num = 100
-try_phi = np.linspace(0, 2*np.pi, try_num, endpoint=False)
-try_theta = np.arccos(np.linspace(1, -1, try_num))
-try_phis, try_thetas = np.meshgrid(try_phi, try_theta)
-try_phis = try_phis.flatten() + np.random.random(try_num**2) / try_num**2
-try_thetas= try_thetas.flatten() + np.random.random(try_num**2) / try_num**2
+try_num = 10000
+try_phis = np.random.rand(try_num) * 2 * np.pi
+try_thetas = np.arccos(np.random.rand(try_num)*2 - 1)
 
 vxs = np.sin(try_thetas) * np.cos(try_phis)
 vys = np.sin(try_thetas) * np.sin(try_phis)
 vzs = np.cos(try_thetas)
 try_velocities = np.stack((vxs, vys, vzs))
-
-# try_velocities = gen_velocities(try_phi, try_theta)
-try_intensities = np.ones(try_num**2)
+try_intensities = np.ones(try_num)
 
 def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
     if reflect_num == 0:
@@ -181,18 +173,18 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
     PMT_z = Ro * np.cos(PMT_theta)
 
     # Step1: 均匀发出试探光线
-    try_coordinates = gen_coordinates(try_num**2, x, y, z)
-    try_times = np.zeros(try_num**2)
+    try_coordinates = gen_coordinates(x, y, z)
+    try_times = np.zeros(try_num)
 
     # Step2: 寻找距离PMT中心一定距离的折射光
     try_new_coordinates, try_new_velocities = transist(try_coordinates, try_velocities, try_intensities, try_times)[:2]
-    try_PMT_coordinates = gen_coordinates(try_num**2, PMT_x, PMT_y, PMT_z)
+    try_PMT_coordinates = gen_coordinates(PMT_x, PMT_y, PMT_z)
     try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
 
     d_min = 0.510
+    least_allow_num = 16
     # 自动调节d_max，使得粗调得到一个恰当的范围（20根粗射光线）
     allow_num = 0
-    least_allow_num = 12
     for d_max in np.linspace(0.6, 5, 100):
         allowed_lights = (try_distances>d_min) * (try_distances<d_max)
         allow_num = np.sum(allowed_lights)
@@ -221,14 +213,14 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
     dense_phis = np.linspace(phi_start, phi_end, dense_phi_num)
     dense_thetas = np.arccos(np.linspace(np.cos(theta_start), np.cos(theta_end), dense_theta_num))
 
-    dense_coordinates = gen_coordinates(dense_phi_num*dense_theta_num, x, y, z)
+    dense_coordinates = gen_coordinates(x, y, z)
     dense_velocities = gen_velocities(dense_phis, dense_thetas)
     dense_intensities = np.ones(dense_phi_num*dense_theta_num)
     dense_times = np.zeros(dense_phi_num*dense_theta_num)
 
     # Step4: 判断哪些光线能够到达PMT
     dense_new_coordinates, dense_new_velocities, dense_new_intensities, dense_new_times= transist(dense_coordinates, dense_velocities, dense_intensities, dense_times)[:4]
-    dense_PMT_coordinates = gen_coordinates(dense_phi_num*dense_theta_num, PMT_x, PMT_y, PMT_z)
+    dense_PMT_coordinates = gen_coordinates(PMT_x, PMT_y, PMT_z)
     all_intensity, all_times = hit_PMT(dense_new_coordinates, dense_new_velocities, dense_new_intensities, dense_new_times, dense_PMT_coordinates)
     ratio = all_intensity / (dense_phi_num*dense_theta_num)
     # print(f'light num = {all_times.shape[0]}')
@@ -252,8 +244,8 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
     if naive:
         return r_PMT**2/(4*d**2)  # 平方反比模式
     else:
-        prob1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 150)[0]
-        prob2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 100)[0]
+        prob1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 100)[0]
+        prob2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 200)[0]
         # print(prob1)
         # print(prob2)
         return prob1 + prob2
@@ -264,7 +256,7 @@ def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
     x, y, z单位为m
     角度为弧度制
     '''
-    prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 100)
+    prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 30)
     prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 50)
     # print(prob1/prob2)
     p = np.random.rand()
@@ -304,10 +296,10 @@ y = np.random.random(200) * 10
 z = np.random.random(200) * 10
 
 if __name__ == '__main__':
-    print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(400))
+    # print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(400))
     # for i in range(200):
     #    get_PE_probability(x[i], y[i], z[i],0,0)
-    # print(get_PE_probability(3, 6, 10,0,0))
+    print(get_PE_probability(12.5, 0, 12.5,0,0))
     # get_PE_probability(np.random.rand()*10, np.random.rand()*10, np.random.rand()*10,0,0)
     # for i in range(4000):
     #     try_phis = np.random.rand(try_num) * 2 * np.pi
