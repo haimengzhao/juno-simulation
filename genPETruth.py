@@ -12,7 +12,7 @@ gen_PETruth.py: 根据光学部分，ParticleTruth和PETruth，得到PETruth
 可与draw.py中根据data.h5绘制的probe图像进行对比.
 '''
 
-PRECISION = 10
+PRECISION = 100
 LS_RADIUS = 17.71
 PMT_R = 19.5
 

@@ -32,7 +32,7 @@ import numpy as np
 import h5py as h5
 from tqdm import tqdm
 from event import generate_events
-from get_prob_time import get_PE_probability, get_random_PE_time
+from genPETruth import get_PE_Truth
 from genWaveform import get_waveform  
 from utils import save_file
 
@@ -52,51 +52,11 @@ if __name__ == "__main__":
         # 只要求模拟17612个PMT
         PMT_list = geo['Geometry'][:args.pmt_count]
 
-
     # 生成顶点
     ParticleTruth, PhotonTruth = generate_events(args.n)
 
     # 光学过程
-    PE_prob_cumsum = np.zeros((args.n, args.pmt_count))
-    PE_prob_array = np.zeros((args.n, args.pmt_count))
-
-    for event in tqdm(ParticleTruth):
-        for PMT in PMT_list:
-            PE_prob_array[event['EventID']][PMT['ChannelID']] = get_PE_probability(
-                event['x']/1000, event['y']/1000, event['z']/1000,
-                PMT['phi']/180*np.pi, PMT['theta']/180*np.pi
-            )
-        
-        PE_prob_cumsum[event['EventID']][:] = np.cumsum(PE_prob_array[event['EventID']])
-    
-    PE_event_ids = np.zeros(PhotonTruth.shape[0])
-    PE_channel_ids = np.zeros(PhotonTruth.shape[0])
-    PE_petimes = np.zeros(PhotonTruth.shape[0])
-    
-    index = 0
-    for photon in tqdm(PhotonTruth):
-        channel_hit = np.asarray(rng.random() < PE_prob_cumsum[photon['EventID']][:]).nonzero()[0]
-        if channel_hit.shape[0] > 0:
-            PE_event_ids[index] = photon['EventID']
-            PE_channel_ids[index] = channel_hit[0]
-            PE_petimes[index] = photon['GenTime'] + get_random_PE_time(
-                ParticleTruth[photon['EventID']]['x']/1000,
-                ParticleTruth[photon['EventID']]['y']/1000,
-                ParticleTruth[photon['EventID']]['z']/1000,
-                PMT_list[channel_hit[0]]['phi']/180*np.pi,
-                PMT_list[channel_hit[0]]['theta']/180*np.pi
-            )
-            index += 1
-
-    pe_tr_dtype = [
-        ('EventID', '<i4'),
-        ('ChannelID', '<i4'),
-        ('PETime', '<f8')
-    ]
-    PETruth = np.zeros(index, dtype=pe_tr_dtype)
-    PETruth['EventID'] = PE_event_ids[:index]
-    PETruth['ChannelID'] = PE_channel_ids[:index]
-    PETruth['PETime'] = PE_petimes[:index]
+    PETruth = get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, args.n)
 
     # 波形
     Waveform = get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=0.01, noisetype='normal')
