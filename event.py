@@ -104,7 +104,7 @@ def generate_events(number_of_events):
     Particle_Truth['x'] = event_coordinates[:, 0]*1000
     Particle_Truth['y'] = event_coordinates[:, 1]*1000
     Particle_Truth['z'] = event_coordinates[:, 2]*1000
-    Particle_Truth['p'] = np.zeros(number_of_events) + 1
+    Particle_Truth['p'] = np.ones(number_of_events)
     print("Particle_Truth表生成完成！")
 
     # 生成光子，先用齐次泊松分布，再用expectation来thin

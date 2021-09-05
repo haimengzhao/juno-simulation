@@ -11,8 +11,8 @@ Ri = 17.71e3 # inner radius / mm
 Ro = 19.5e3 # outer radius / mm
 Volume_i = 4 / 3 * np.pi * Ri ** 3 # volume of LS
 
-NumBins_Density = 15
-NumBins_PETime = 1000
+NumBins_Density = 30
+NumBins_PETime = 50
 NumBins_Probe = 50
 
 # 该类在测试时会用到，请不要私自修改函数签名，后果自负
@@ -22,7 +22,7 @@ class Drawer:
         self.petruth = data["PETruth"]
         self.geo = geo["Geometry"]
 
-        self.N_vertices = len(data) # total num of vertices
+        self.N_vertices = len(data['ParticleTruth']) # total num of vertices
         self.rho0 = self.N_vertices / Volume_i # average density / mm^-3
 
     def draw_vertices_density(self, fig, ax):
@@ -36,12 +36,9 @@ class Drawer:
 
         # radius
         r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
-        # total number
-        N = len(x)
 
         # extract histogram statistics
-        # density=True: n = dN/(N * dr)
-        n, bins, patches = ax.hist(r, bins=NumBins_Density, density=True)
+        n, bins, patches = ax.hist(r, bins=NumBins_Density, density=False)
         ax.cla()
 
         # plot
@@ -57,14 +54,16 @@ class Drawer:
                 *map(float, 
                 ('%.2e'%self.rho0).split('e'))
                 ))
-        # ax.set_ylim(0, 2 * rho0)
-        # ax.set_yticks(np.linspace(0, 2 * rho0, 6))
-        # ax.set_yticklabels(['%.1f' % (2 * i / 5) for i in range(6)])
+        ax.set_ylim(0, 2 * self.rho0)
+        ax.set_yticks(np.linspace(0, 2 * self.rho0, 5))
+        ax.set_yticklabels(['%.1f' % (2 * i / 4) for i in range(5)])
         
-        # density = dN / (4 pi r^2 dr) = n / (4 pi r^2) * N
-        ax.scatter((bins[1:])[n!=0], n[n!=0] / (4 * np.pi * (bins[1:])[n!=0] ** 2) * N / self.rho0, color='red')
-        ax.plot(bins[1:], n / (4 * np.pi * bins[1:] ** 2) * N / self.rho0, color='red')
-
+        # density = dN / dV 
+        # dV = 4/3*pi*d(r^3)
+        deltaVs = 4 / 3 * np.pi * (bins[1:] ** 3 - bins[:-1] ** 3)
+        avgbins = (bins[:-1] + bins[1:]) / 2
+        ax.scatter(avgbins, n / deltaVs, color='red')
+        ax.plot(avgbins, n / deltaVs, color='red')
         
 
     def draw_pe_hit_time(self, fig, ax):
@@ -132,7 +131,7 @@ class Drawer:
         ax.set_title(r'Heatmap of the Probe Function $Prob(R, \theta)$')
 
         # d#PE/d#Vertices = d#PE/dV * dV/d#Vertices = d#PE/(dV rho0) = d#PE/(2pi r sin(theta) dr dtheta rho0)
-        pcm = ax.pcolormesh(ThetaMesh, RMesh, h_double / (2 * np.pi * RMesh * np.abs(np.sin(ThetaMesh)) * self.rho0) * N_PE, shading='auto', norm=colors.LogNorm())
+        pcm = ax.pcolormesh(ThetaMesh, RMesh, h_double / self.rho0 * N_PE, shading='auto', norm=colors.LogNorm())
 
         fig.colorbar(pcm, label='Expected Number of PE per Vertex')
         
@@ -154,18 +153,21 @@ if __name__ == "__main__":
 
     # 画出分页的 PDF
     with PdfPages(args.opt) as pp:
+        print('Printing Vertex Density')
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         drawer.draw_vertices_density(fig, ax)
         pp.savefig(figure=fig)
 
+        print('Printing PETime')
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         drawer.draw_pe_hit_time(fig, ax)
         pp.savefig(figure=fig)
 
-        # Probe 函数图像使用极坐标绘制，注意 x 轴是 theta，y 轴是 r
-        fig = plt.figure()
-        ax = fig.add_subplot(1, 1, 1, projection="polar", theta_offset=np.pi / 2)
-        drawer.draw_probe(fig, ax)
-        pp.savefig(figure=fig)
+        # print('Printing Probe')
+        # # Probe 函数图像使用极坐标绘制，注意 x 轴是 theta，y 轴是 r
+        # fig = plt.figure()
+        # ax = fig.add_subplot(1, 1, 1, projection="polar", theta_offset=np.pi / 2)
+        # drawer.draw_probe(fig, ax)
+        # pp.savefig(figure=fig)
