@@ -119,6 +119,7 @@ class Drawer:
         Events, Events_i = np.unique(self.petruth['EventID'], return_inverse=True)
         Channels, Channels_i = np.unique(self.petruth['ChannelID'], return_inverse=True)
         
+        print('Replacing Event&Channel with xyz&geo')
         # replace ChannelID with corresponding geo
         geo_Channels_i = np.array([np.where(self.geo['ChannelID']==a)[0][0] for a in Channels])
         pet_geo_i = geo_Channels_i[Channels_i]
@@ -133,8 +134,11 @@ class Drawer:
         pet_polar = np.stack(polar_from_xyz(Ro, pet_geo[:, 0], pet_geo[:, 1], pet_xyz[:, 0], pet_xyz[:, 1], pet_xyz[:, 2]), -1)
 
         # event_polar = self.get_event_polar() # ABANDANED
+
+        # num of PE
         N_pe = len(pet_polar)
         
+        print('Histograming')
         # extract histogram statistics
         h, redges, tedges, im = ax.hist2d(pet_polar[:, 1], pet_polar[:, 0], NumBins_Probe, range=[[0, Ri], [1e-4, np.pi-1e-4]], density=True)
         # hevent = ax.hist2d(event_polar[:, 0], event_polar[:, 1], NumBins_Probe, range=[[0, np.pi], [0, Ri]], density=False)[0]
@@ -150,6 +154,9 @@ class Drawer:
 
         # d#PE/d#Vertices = d#PE/dV * dV/d#Vertices = d#PE/(dV rho0) = d#PE/(2pi r sin(theta) dr dtheta rho0)
         Z = h_double / (2 * np.pi * RMesh * np.abs(np.sin(ThetaMesh)) * self.rho0) * N_pe / 17612 / 4000
+
+        print('Interploting')
+        # interplot
         Z_interp = interp2d(tedges_double, redges, Z)
         ThetaInterp = np.linspace(0, 2 * np.pi, 1000)
         RInterp = np.linspace(0, Ri, 1000)
@@ -157,6 +164,7 @@ class Drawer:
         # plot heatmap
         ax.set_title(r'Heatmap of the Probe Function $Probe(R, \theta)$')
 
+        print('Drawing Heatmap')
         # pcm = ax.pcolormesh(ThetaMesh, RMesh, h_double / hevent_double, shading='auto', cmap=cm.get_cmap('jet')) # ABANDANED
         pcm = ax.pcolormesh(ThetaInterp, RInterp, Z_interp(ThetaInterp, RInterp), shading='auto', norm=colors.LogNorm(vmin=1e-1,vmax=1e2), cmap=cm.get_cmap('jet'))
 
