@@ -82,7 +82,7 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
         用于代替光学部分中的get_PE_probability，使用插值函数
         '''
         r, theta = to_relative_position(x, y, z, PMT_phi, PMT_theta)
-        return get_prob_t(r, theta)[0], get_prob_r(r, theta)[0]
+        return np.dstack((get_prob_t(r, theta), get_prob_r(r, theta)))
 
     def intp_random_PE_time(x, y, z, PMT_phi, PMT_theta, prob_t, prob_r):
         '''
@@ -107,9 +107,9 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
     for event in tqdm(ParticleTruth):
         PE_prob_array[event['EventID']][:][:] = intp_PE_probability(
             np.zeros(PMT_COUNT) + event['x']/1000,
-            np.zeros(PMT_COUNT) + event['y']/1000, 
+            np.zeros(PMT_COUNT) + event['y']/1000,
             np.zeros(PMT_COUNT) + event['z']/1000,
-            PMT_list['phi']/180*np.pi, 
+            PMT_list['phi']/180*np.pi,
             PMT_list['theta']/180*np.pi
         )
         PE_prob_cumsum[event['EventID']][:] = np.cumsum(
