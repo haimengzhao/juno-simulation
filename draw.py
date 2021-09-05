@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 from matplotlib import cm
 from matplotlib.backends.backend_pdf import PdfPages
+from scipy.interpolate import interp2d
 from tqdm import tqdm
 from utils import polar_from_xyz
 
@@ -12,9 +13,10 @@ Ri = 17.71e3 # inner radius / mm
 Ro = 19.5e3 # outer radius / mm
 Volume_i = 4 / 3 * np.pi * Ri ** 3 # volume of LS
 
-NumBins_Density = 30
-NumBins_PETime = 50
-NumBins_Probe = 50
+# parameters
+NumBins_Density = 30 # num of histogram bins when drawing density
+NumBins_PETime = 50 # num of histogram bins when drawing PETime
+NumBins_Probe = 100 # num of histogram bins when drawing Prob
 
 # 该类在测试时会用到，请不要私自修改函数签名，后果自负
 class Drawer:
@@ -89,6 +91,11 @@ class Drawer:
         ax.hist(time, bins=NumBins_PETime, density=False)
 
     def get_event_polar(self):
+        '''
+        ABANDONED
+        originally used to plot probe
+        get the polar distributions of events
+        '''
         print('Preparing Event Polar Distribution')
         event_polar = np.zeros((17612 * self.N_vertices, 2))
         pmt_geo = self.geo[:17612]
@@ -125,29 +132,33 @@ class Drawer:
         # raplace xyz, geo with polar coordinates
         pet_polar = np.stack(polar_from_xyz(Ro, pet_geo[:, 0], pet_geo[:, 1], pet_xyz[:, 0], pet_xyz[:, 1], pet_xyz[:, 2]), -1)
 
-        # event_polar = self.get_event_polar()
+        # event_polar = self.get_event_polar() # ABANDANED
         N_pe = len(pet_polar)
         
         # extract histogram statistics
-        h, redges, tedges, im = ax.hist2d(pet_polar[:, 1], pet_polar[:, 0], NumBins_Probe, range=[[0, Ri], [0, np.pi]], density=True)
+        h, redges, tedges, im = ax.hist2d(pet_polar[:, 1], pet_polar[:, 0], NumBins_Probe, range=[[0, Ri], [1e-4, np.pi-1e-4]], density=True)
         # hevent = ax.hist2d(event_polar[:, 0], event_polar[:, 1], NumBins_Probe, range=[[0, np.pi], [0, Ri]], density=False)[0]
         ax.cla()
 
         # expand theta from [0, pi] to [0, 2pi]
-        redges, tedges = redges[1:], tedges[1:]
+        redges, tedges = (redges[:-1] + redges[1:]) / 2, (tedges[:-1] + tedges[1:]) / 2
         tedges_double = np.hstack([tedges, tedges + np.pi])
         h_double = np.hstack([h, np.fliplr(h)])
-        # hevent_double = np.hstack([hevent, np.fliplr(hevent)])
+        # hevent_double = np.hstack([hevent, np.fliplr(hevent)]) # ABANDANED
 
         ThetaMesh, RMesh = np.meshgrid(tedges_double, redges)
 
-        # plot heatmap
+        # d#PE/d#Vertices = d#PE/dV * dV/d#Vertices = d#PE/(dV rho0) = d#PE/(2pi r sin(theta) dr dtheta rho0)
+        Z = h_double / (2 * np.pi * RMesh * np.abs(np.sin(ThetaMesh)) * self.rho0) * N_pe / 17612 / 4000
+        Z_interp = interp2d(tedges_double, redges, Z)
+        ThetaInterp = np.linspace(0, 2 * np.pi, 1000)
+        RInterp = np.linspace(0, Ri, 1000)
 
+        # plot heatmap
         ax.set_title(r'Heatmap of the Probe Function $Probe(R, \theta)$')
 
-        # d#PE/d#Vertices = d#PE/dV * dV/d#Vertices = d#PE/(dV rho0) = d#PE/(2pi r sin(theta) dr dtheta rho0)
-        # pcm = ax.pcolormesh(ThetaMesh, RMesh, h_double / hevent_double, shading='auto', cmap=cm.get_cmap('jet'))
-        pcm = ax.pcolormesh(ThetaMesh, RMesh, h_double, shading='auto', norm=colors.LogNorm(), cmap=cm.get_cmap('jet'))
+        # pcm = ax.pcolormesh(ThetaMesh, RMesh, h_double / hevent_double, shading='auto', cmap=cm.get_cmap('jet')) # ABANDANED
+        pcm = ax.pcolormesh(ThetaInterp, RInterp, Z_interp(ThetaInterp, RInterp), shading='auto', norm=colors.LogNorm(vmin=1e-1,vmax=1e2), cmap=cm.get_cmap('jet'))
 
         fig.colorbar(pcm, label='Expected Number of PE per Vertex')
         
