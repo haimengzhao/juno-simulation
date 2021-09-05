@@ -3,6 +3,7 @@ from scipy.integrate import quad
 import multiprocessing
 import utils
 from tqdm import tqdm
+from numba import njit
 
 LS_RADIUS = 17.71 # 液闪的半径，单位m
 SIGMA = 5 # 正态分布的标准差
@@ -10,7 +11,6 @@ TAU = 20 # 指数衰减函数e^(-t/tau)中的tau
 NORM_FACTOR = 69.15044738473783 # 期望的归一化系数
 T_MAX = 500 # 只考虑500ns以内产生的光子
 PRECISION = 1000 # expectation取样时的间隔为其倒数
-
 
 def expectation(t):
     '''
@@ -68,8 +68,9 @@ def generate_events(number_of_events):
     print("初始化完成！")
 
     # 线性插值
+    @njit
     def linear_intp(t, expect_list, PRECISION):
-        floor = np.floor(t*PRECISION).astype(int)
+        floor = np.floor(t*PRECISION).astype(np.int64)
         return (((t*PRECISION) - floor) * expect_list[floor] +
                 (-(t*PRECISION) + floor + 1) * expect_list[floor+1])
 

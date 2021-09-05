@@ -4,6 +4,7 @@ from tqdm import tqdm
 import multiprocessing
 from scipy.interpolate import RectBivariateSpline
 import numexpr as ne
+from numba import njit
 import utils
 from get_prob_time import gen_data
 '''
@@ -117,37 +118,43 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
 
     print("正在模拟每个光子打到的PMT与PETime...")
 
-    PE_event_ids = np.zeros(PhotonTruth.shape[0])
-    PE_channel_ids = np.zeros(PhotonTruth.shape[0])
-    PE_petimes = np.zeros(PhotonTruth.shape[0])
-    parameters_of_time = np.zeros((PhotonTruth.shape[0], 7))
+    @njit
+    def get_PETimes(PhotonTruth, ParticleTruth, PMT_list, PE_prob_array, PE_prob_cumsum ):
+        PE_event_ids = np.zeros(PhotonTruth.shape[0])
+        PE_channel_ids = np.zeros(PhotonTruth.shape[0])
+        PE_petimes = np.zeros(PhotonTruth.shape[0])
+        parameters_of_time = np.zeros((PhotonTruth.shape[0], 7))
+        
+        index = 0
+        for photon in PhotonTruth:
+            channel_hit = np.asarray(np.random.random() < PE_prob_cumsum[photon['EventID']][:]).nonzero()[0]
+            if channel_hit.shape[0] > 0:
+                PE_event_ids[index] = photon['EventID']
+                PE_channel_ids[index] = channel_hit[0]
+                PE_petimes[index] = photon['GenTime']
+                parameters_of_time[index][:] = [
+                    ParticleTruth[photon['EventID']]['x']/1000,
+                    ParticleTruth[photon['EventID']]['y']/1000,
+                    ParticleTruth[photon['EventID']]['z']/1000,
+                    PMT_list[channel_hit[0]]['phi']/180*np.pi,
+                    PMT_list[channel_hit[0]]['theta']/180*np.pi,
+                    PE_prob_array[event['EventID']][channel_hit[0]][0],
+                    PE_prob_array[event['EventID']][channel_hit[0]][1]
+                ]
+                index += 1
+        return index, PE_event_ids, PE_channel_ids, PE_petimes, parameters_of_time
     
-    index = 0
-    for photon in tqdm(PhotonTruth):
-        channel_hit = np.asarray(rng.random() < PE_prob_cumsum[photon['EventID']][:]).nonzero()[0]
-        if channel_hit.shape[0] > 0:
-            PE_event_ids[index] = photon['EventID']
-            PE_channel_ids[index] = channel_hit[0]
-            PE_petimes[index] = photon['GenTime']
-            parameters_of_time[index][:] = [
-                ParticleTruth[photon['EventID']]['x']/1000,
-                ParticleTruth[photon['EventID']]['y']/1000,
-                ParticleTruth[photon['EventID']]['z']/1000,
-                PMT_list[channel_hit[0]]['phi']/180*np.pi,
-                PMT_list[channel_hit[0]]['theta']/180*np.pi,
-                PE_prob_array[event['EventID']][channel_hit[0]][0],
-                PE_prob_array[event['EventID']][channel_hit[0]][1]
-            ]
-            index += 1
+    index, PE_event_ids, PE_channel_ids, PE_petimes, parameters_of_time = get_PETimes(PhotonTruth, ParticleTruth, PMT_list, PE_prob_array, PE_prob_cumsum)
+
     PE_petimes[:index] += intp_random_PE_time(
-        parameters_of_time[:index][:,0],
-        parameters_of_time[:index][:,1],
-        parameters_of_time[:index][:,2],
-        parameters_of_time[:index][:,3],
-        parameters_of_time[:index][:,4],
-        parameters_of_time[:index][:,5],
-        parameters_of_time[:index][:,6],
-    )
+                parameters_of_time[:index][:,0],
+                parameters_of_time[:index][:,1],
+                parameters_of_time[:index][:,2],
+                parameters_of_time[:index][:,3],
+                parameters_of_time[:index][:,4],
+                parameters_of_time[:index][:,5],
+                parameters_of_time[:index][:,6],
+            )
 
     print("正在生成PETruth表...")
     pe_tr_dtype = [

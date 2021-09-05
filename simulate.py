@@ -59,7 +59,8 @@ if __name__ == "__main__":
     PETruth = get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, args.n)
 
     # 波形
-    Waveform = get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=0.01, noisetype='normal')
+    # Waveform = get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=0.01, noisetype='normal')
+    Waveform = np.zeros(1)
 
     # 保存文件
     save_file(args.opt, ParticleTruth, PETruth, Waveform)

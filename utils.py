@@ -41,7 +41,7 @@ def polar_from_xyz(R, theta0, phi0, x, y, z):
     distance = np.sqrt((x - x0) ** 2 + (y - y0) ** 2 + (z - z0) ** 2)
 
     # cosine law
-    theta = np.arccos((R ** 2 + r ** 2 - distance ** 2) / (2 * R * r))
+    theta = np.arccos(np.clip((R ** 2 + r ** 2 - distance ** 2) / (2 * R * r), -1, 1))
 
     return theta, r
 
