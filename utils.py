@@ -1,5 +1,6 @@
 import numpy as np
 import h5py
+import numexpr as ne
 
 '''
 utility functions
@@ -23,9 +24,11 @@ def xyz_from_spher(r, theta, phi):
     input: r, theta, phi
     output: x, y, z
     '''
-    x = r * np.sin(theta) * np.cos(phi)
-    y = r * np.sin(theta) * np.sin(phi)
-    z = r * np.cos(theta)
+    ne.set_num_threads(16)
+
+    x = ne.evaluate('r * sin(theta) * cos(phi)')
+    y = ne.evaluate('r * sin(theta) * sin(phi)')
+    z = ne.evaluate('r * cos(theta)')
     return x, y, z
 
 def polar_from_xyz(R, theta0, phi0, x, y, z):
@@ -36,12 +39,15 @@ def polar_from_xyz(R, theta0, phi0, x, y, z):
     input: R, theta0, phi0, x, y, z
     output: theta, r
     '''
-    r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+    ne.set_num_threads(16)
+
+    r = ne.evaluate('sqrt(x ** 2 + y ** 2 + z ** 2)')
     x0, y0, z0 = xyz_from_spher(R, theta0, phi0)
-    distance = np.sqrt((x - x0) ** 2 + (y - y0) ** 2 + (z - z0) ** 2)
+    distance = ne.evaluate('sqrt((x - x0) ** 2 + (y - y0) ** 2 + (z - z0) ** 2)')
 
     # cosine law
-    theta = np.arccos(np.clip((R ** 2 + r ** 2 - distance ** 2) / (2 * R * r), -1, 1))
+    costheta = ne.evaluate('(R ** 2 + r ** 2 - distance ** 2) / (2 * R * r)')
+    theta = np.arccos(np.clip(costheta, -1, 1))
 
     return theta, r
 
