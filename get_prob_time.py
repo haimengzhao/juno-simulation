@@ -13,7 +13,7 @@ n_glass = 1.5
 eta = n_LS / n_water
 Ri = 17.71
 Ro = 19.5
-r_PMT = 0.508
+r_PMT = 0.508/2
 c = 3e8
 
 
@@ -151,7 +151,7 @@ def rotate(x, y, z, PMT_phi, PMT_theta, reflect_num):
         else:
             return x, y, z, 0, np.pi/2
 
-try_num = 10000
+try_num = 20000
 try_phis = np.random.rand(try_num) * 2 * np.pi
 try_thetas = np.arccos(np.random.rand(try_num)*2 - 1)
 
@@ -182,11 +182,11 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
     try_PMT_coordinates = gen_coordinates(PMT_x, PMT_y, PMT_z)
     try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
 
-    d_min = 0.510
+    d_min = r_PMT + 0.002
     # 自动调节d_max，使得粗调得到一个恰当的范围（20根粗射光线）
     allow_num = 0
-    least_allow_num = 20
-    for d_max in np.linspace(0.6, 5, 100):
+    least_allow_num = 16 if reflect_num else 20
+    for d_max in np.linspace(d_min, 5, 100):
         allowed_lights = (try_distances>d_min) * (try_distances<d_max)
         allow_num = np.sum(allowed_lights)
         if allow_num > least_allow_num:
@@ -245,11 +245,11 @@ def get_PE_probability(x, y, z, PMT_phi, PMT_theta, naive=False):
     if naive:
         return r_PMT**2/(4*d**2)  # 平方反比模式
     else:
-        prob1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 200)[0]
+        prob1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 300)[0]
         prob2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 100)[0]
         # print(prob1)
         # print(prob2)
-        return prob1 + prob2
+        return  prob1+prob2
 
 def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
     '''
@@ -275,7 +275,7 @@ def gen_data(x, y, z, PMT_phi, PMT_theta):
     x, y, z单位为m
     角度为弧度制
     '''
-    prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 400)
+    prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 300)
     prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 150)
     return prob1, prob2, times1.mean(), times2.mean(), times1.std(), times2.std()
 
@@ -296,10 +296,10 @@ x = np.random.random(2000) * 10
 y = np.random.random(2000) * 10
 z = np.random.random(2000) * 10
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
     # print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(4000))
-    for i in range(2000):
-       get_PE_probability(x[i], y[i], z[i],0,0)
+    # for i in range(2000):
+    #    get_PE_probability(x[i], y[i], z[i],0,0)
     # print(get_PE_probability(3, 6, 10,0,0))
     # get_PE_probability(np.random.rand()*10, np.random.rand()*10, np.random.rand()*10,0,0)
     # for i in range(4000):
