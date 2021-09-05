@@ -46,8 +46,7 @@ def polar_from_xyz(R, theta0, phi0, x, y, z):
     distance = ne.evaluate('sqrt((x - x0) ** 2 + (y - y0) ** 2 + (z - z0) ** 2)')
 
     # cosine law
-    costheta = ne.evaluate('(R ** 2 + r ** 2 - distance ** 2) / (2 * R * r)')
-    theta = np.arccos(np.clip(costheta, -1, 1))
+    theta = ne.evaluate('arccos((R ** 2 + r ** 2 - distance ** 2) / (2 * R * r))')
 
     return theta, r
 
