@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from utils import save_file
+import h5py
 
 '''
 电子学任务
@@ -111,7 +113,7 @@ def get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal
     return WF
 
 
-def get_waveform_bychunk(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal'):
+def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal'):
     '''
     根据PETruth生成波形(对于每个Event分步进行,以节省内存)
 
@@ -135,28 +137,86 @@ def get_waveform_bychunk(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype
     Events, Eindex = np.unique(EventID, return_index=True)
     Eindex = np.hstack([Eindex, np.array(len(EventID))])
 
-
     # 分Event生成
     if len(Eindex) > 1:
-        waveform = get_waveform(PETruth[Eindex[0]:Eindex[1]], ampli, td, tr, ratio, noisetype)
-        EventID = waveform['EventID']
-        ChannelID = waveform['ChannelID']
-        WF = waveform['Waveform']
+
+        # 采样
+        length = Eindex[1] - Eindex[0]
+        t = np.tile(np.arange(0, 1000, 1), (length, 1))
+
+        # 生成Waveform
+        if noisetype == 'normal':
+            Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[0]:Eindex[1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+        elif noisetype == 'sin':
+            Waveform = sin_noise(t, np.pi/1e30, ratio * ampli) + double_exp_model(t - PETruth[Eindex[0]:Eindex[1]].reshape(-1, 1), ampli, td, tr)
+        else:
+            print(f'{noisetype} noise not implemented, use normal noise instead!')
+            Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[0]:Eindex[1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+
+        # numpy groupby
+        # ref:
+        # https://stackoverflow.com/questions/58546957/sum-of-rows-based-on-index-with-numpy
+        Channels, idx = np.unique(PETruth[Eindex[0]:Eindex[1]]['ChannelID'], return_inverse=True)
+        order = np.argsort(idx)
+        breaks = np.flatnonzero(np.concatenate(([1], np.diff(idx[order]))))
+        result = np.add.reduceat(Waveform[order], breaks, axis=0)
+        WF = np.array(list(zip(
+                np.ones((len(Channels), 1))*Events[0], 
+                Channels.reshape(-1, 1), 
+                list(map(lambda x: x.reshape(-1), np.split(result, len(Channels), axis=0)))
+                )), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+
+        # write to file
+        with h5py.File(filename, "a") as f:
+            ptds = f.create_dataset('ParticleTruth', data=ParticleTruth)
+            petds = f.create_dataset('PETruth', data=PETruth)
+            wfds = f.create_dataset('Waveform', (len(Channels),), maxshape=(None,), 
+                            dtype=np.dtype([('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))]))
+            wfds[:] = WF
+            # print(wfds.shape)
+
         for i in tqdm(range(1, len(Eindex)-1)):
-            waveform = get_waveform(PETruth[Eindex[i]:Eindex[i+1]], ampli, td, tr, ratio, noisetype)
-            EventID = np.hstack([EventID, waveform['EventID']])
-            ChannelID = np.hstack([ChannelID, waveform['ChannelID']])
-            WF = np.vstack([WF, waveform['Waveform']])
+            # 采样
+            length = Eindex[i+1] - Eindex[i]
+            t = np.tile(np.arange(0, 1000, 1), (length, 1))
+
+            # 生成Waveform
+            if noisetype == 'normal':
+                Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+            elif noisetype == 'sin':
+                Waveform = sin_noise(t, np.pi/1e30, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+            else:
+                print(f'{noisetype} noise not implemented, use normal noise instead!')
+                Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+
+            # numpy groupby
+            # ref:
+            # https://stackoverflow.com/questions/58546957/sum-of-rows-based-on-index-with-numpy
+            Channels, idx = np.unique(PETruth[Eindex[i]:Eindex[i+1]]['ChannelID'], return_inverse=True)
+            order = np.argsort(idx)
+            breaks = np.flatnonzero(np.concatenate(([1], np.diff(idx[order]))))
+            result = np.add.reduceat(Waveform[order], breaks, axis=0)
+            WF = np.array(list(zip(
+                    np.ones((len(Channels), 1))*Events[i], 
+                    Channels.reshape(-1, 1), 
+                    list(map(lambda x: x.reshape(-1), np.split(result, len(Channels), axis=0)))
+                    )), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+
+            with h5py.File(filename, "a") as f:
+                wfds = f['Waveform']
+                wfds.resize(wfds.shape[0] + len(Channels), axis=0)
+                wfds[-len(Channels):] = WF
+                # print(wfds.shape)
     else:
         waveform = get_waveform(PETruth, ampli, td, tr, ratio, noisetype)
         EventID = waveform['EventID']
         ChannelID = waveform['ChannelID']
         WF = waveform['Waveform']
+        WF = np.array(list(zip(
+            EventID, 
+            ChannelID, 
+            list(map(lambda x: x.reshape(-1), np.split(WF, len(WF), axis=0)))
+            )), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
 
-    WF = np.array(list(zip(
-        PETruth['EventID'], 
-        PETruth['ChannelID'], 
-        list(map(lambda x: x.reshape(-1), np.split(WF, len(WF), axis=0)))
-        )), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+        save_file(filename, ParticleTruth, PETruth, WF)
 
-    return waveform

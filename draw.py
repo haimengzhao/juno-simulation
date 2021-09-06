@@ -15,7 +15,7 @@ Volume_i = 4 / 3 * np.pi * Ri ** 3 # volume of LS
 
 # parameters
 NumBins_Density = 30 # num of histogram bins when drawing density
-NumBins_PETime = 50 # num of histogram bins when drawing PETime
+NumBins_PETime = 1000 # num of histogram bins when drawing PETime
 NumBins_Probe = 100 # num of histogram bins when drawing Prob
 
 # 该类在测试时会用到，请不要私自修改函数签名，后果自负
