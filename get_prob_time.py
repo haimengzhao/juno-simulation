@@ -4,9 +4,10 @@ import multiprocessing
 from timeit import Timer
 import numexpr as ne
 
+# 设置ne最大线程数，防止在并行时占用太多资源
 ne.set_num_threads(2)
 
-# TODO: 光学部分
+# 本文件中所有物理量均为SI单位
 n_water = 1.33
 n_LS = 1.48
 n_glass = 1.5
@@ -19,9 +20,11 @@ c = 3e8
 
 def transist_once(coordinates, velocities, intensities, times):
     '''
+    接收在液闪球内的一族光线，模拟其下一次到达液闪球表面的光学过程
     coordinates: (3,n)
     velocities: (3,n)，其中每个速度矢量都已经归一化
     intensities: (n,)
+    times: (n,)
     '''
     # 求解折射点
     cv = np.einsum('kn, kn->n', coordinates, velocities)
@@ -36,7 +39,6 @@ def transist_once(coordinates, velocities, intensities, times):
     incidence_vectors = velocities
     vertical_of_incidence = np.maximum(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1)
     incidence_angles = np.arccos(-vertical_of_incidence)
-    
     
     # 判断全反射
     max_incidence_angle = np.arcsin(n_water/n_LS)
@@ -67,11 +69,18 @@ def transist_once(coordinates, velocities, intensities, times):
 
 
 def transist_twice(coordinates, velocities, intensities, times):
+    '''
+    接收在液闪球内的一族光线，模拟其经过一次反射后再次到达液闪球表面的光学过程
+    '''
     nt, nc, nv, ni = transist_once(coordinates, velocities, intensities, times)[3:]
     return transist_once(nc, nv, ni, nt)
     
 
 def distance(coordinates, velocities, PMT_coordinates):
+    '''
+    接收一族光线，给出其未来所有时间内与给定PMT的最近距离
+    注意：光线是有方向的，如果光子将越离越远，那么将返回负数距离
+    '''
     new_ts = np.einsum('kn, kn->n', PMT_coordinates - coordinates, velocities)
     nearest_points = coordinates + new_ts * velocities
     distances = np.linalg.norm(nearest_points - PMT_coordinates, axis=0) * np.sign(new_ts) 
@@ -79,10 +88,17 @@ def distance(coordinates, velocities, PMT_coordinates):
 
 
 def gen_coordinates(x, y, z):
+    '''
+    生成(3, 1)型的坐标，调用时广播成(3, n)
+    '''
     coordinates = np.array([x, y, z]).reshape(3, 1)
     return coordinates
 
+
 def gen_velocities(phis, thetas):
+    '''
+    接收两个表示角度的1D-array，生成这两族角度所生成的网格上的归一化速度向量
+    '''
     vxs = (np.sin(thetas) * np.cos(phis.reshape(-1, 1))).reshape(-1)
     vys = (np.sin(thetas) * np.sin(phis.reshape(-1, 1))).reshape(-1)
     vzs = np.tile(np.cos(thetas), phis.shape[0])
@@ -91,6 +107,10 @@ def gen_velocities(phis, thetas):
 
 
 def hit_PMT(coordinates, velocities, intensities, times, PMT_coordinates):
+    '''
+    接收一族光线，模拟其在PMT附近的行为
+    返回能打到PMT上的总光强，以及能达到PMT上光线的时间
+    '''
     # 取出所有能到达PMT的光线
     distances = distance(coordinates, velocities, PMT_coordinates)
     hit_PMTs = (distances>0) * (distances<r_PMT)
@@ -125,7 +145,11 @@ def hit_PMT(coordinates, velocities, intensities, times, PMT_coordinates):
 
     return all_intensity, all_times
 
+
 def rotate(x, y, z, PMT_phi, PMT_theta, reflect_num):
+    '''
+    根据reflect_num转动顶点与PMT，为了后续可能的光线打到坐标连续处
+    '''
     if reflect_num == 0:
         if PMT_phi != np.pi or PMT_theta != np.pi/2:
             Rz = np.array([[-np.cos(PMT_phi), -np.sin(PMT_phi), 0],
@@ -151,6 +175,8 @@ def rotate(x, y, z, PMT_phi, PMT_theta, reflect_num):
         else:
             return x, y, z, 0, np.pi/2
 
+
+# 生成初始化试探光线，后续不再变化
 try_num = 20000
 try_phis = np.random.rand(try_num) * 2 * np.pi
 try_thetas = np.arccos(np.random.rand(try_num)*2 - 1)
@@ -161,11 +187,17 @@ vzs = np.cos(try_thetas)
 try_velocities = np.stack((vxs, vys, vzs))
 try_intensities = np.ones(try_num)
 
+
 def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
+    '''
+    模拟给定顶点发出的光子，能够到达某个PMT的期望与时间分布
+    '''
+    # 根据反射次数决定液闪内模拟方式
     if reflect_num == 0:
         transist = transist_once
     elif reflect_num == 1:
         transist = transist_twice
+
     # Step0: 预转动PMT
     x, y, z, PMT_phi, PMT_theta = rotate(x, y, z, PMT_phi, PMT_theta, reflect_num)
     # 读取PMT坐标信息
@@ -182,8 +214,8 @@ def get_prob_time(x, y, z, PMT_phi, PMT_theta, reflect_num, acc):
     try_PMT_coordinates = gen_coordinates(PMT_x, PMT_y, PMT_z)
     try_distances = distance(try_new_coordinates, try_new_velocities, try_PMT_coordinates)
 
-    d_min = r_PMT + 0.002
     # 自动调节d_max，使得粗调得到一个恰当的范围（20根粗射光线）
+    d_min = r_PMT + 0.002
     allow_num = 0
     least_allow_num = 16 if reflect_num else 20
     for d_max in np.linspace(d_min, 5, 100):
@@ -297,8 +329,8 @@ def gen_data(input_data):
 # y = np.random.random(2000) * 10
 # z = np.random.random(2000) * 10
 
-if __name__ == '__main__':
-    print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(4000))
+# if __name__ == '__main__':
+#     print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(4000))
     # for i in range(2000):
     #    get_PE_probability(x[i], y[i], z[i],0,0)
     # print(get_PE_probability(3, 6, 10,0,0))

@@ -21,6 +21,7 @@ CHUNK = 10000
 def gen_interp():
     '''
     生成插值函数，使用其中的插值函数来近似get_PE_probability与get_random_PE_time
+    生成的插值函数支持1D-array输入
     '''
     print("正在生成插值函数...")
 
@@ -38,12 +39,11 @@ def gen_interp():
 
     # 多线程
     pool = multiprocessing.Pool()
-    # 进度条
 
     # 模拟光线
     res = np.array(list(tqdm(pool.imap(gen_data, np.stack((xs, ys, zs, np.zeros(PRECISION**2), np.zeros(PRECISION**2)), axis=-1)), total=PRECISION**2)))
 
-   
+    # 储存插值点信息
     prob_t = res[:, 0].reshape(PRECISION, PRECISION)
     prob_r = res[:, 1].reshape(PRECISION, PRECISION)
     mean_t = res[:, 2].reshape(PRECISION, PRECISION)
