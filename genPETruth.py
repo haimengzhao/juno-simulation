@@ -27,7 +27,7 @@ def gen_interp():
     # 插值用网格
     ro = np.linspace(0.2, LS_RADIUS, PRECISION)
     theta = np.linspace(0, np.pi, PRECISION)
-    ros, thetas = np.meshgrid(ro, theta)
+    thetas, ros = np.meshgrid(theta, ro)
 
     # 测试点: yz平面
     xs = (np.zeros((PRECISION, PRECISION))).flatten()
@@ -37,17 +37,19 @@ def gen_interp():
     prob_t, prob_r, mean_t, mean_r, std_t, std_r = np.zeros((6, PRECISION, PRECISION))
 
     # 多线程
-    pool = multiprocessing.Pool(processes=16)
+    pool = multiprocessing.Pool()
     # 进度条
-    pbar = tqdm(total=PRECISION*PRECISION)
 
     # 模拟光线
-    res = np.array([pool.apply_async(gen_data, args=(xs[t], ys[t], zs[t], 0, 0), callback=lambda *x: pbar.update()) for t in range(PRECISION*PRECISION)])
+    res = np.array(list(tqdm(pool.imap(gen_data, np.stack((xs, ys, zs, np.zeros(PRECISION**2), np.zeros(PRECISION**2)), axis=-1)), total=PRECISION**2)))
 
-    for i in range(PRECISION):
-        for j in range(PRECISION):
-            t = res[j*PRECISION+i].get()
-            prob_t[i, j], prob_r[i, j], mean_t[i, j], mean_r[i, j], std_t[i, j], std_r[i, j] = t
+   
+    prob_t = res[:, 0].reshape(PRECISION, PRECISION)
+    prob_r = res[:, 1].reshape(PRECISION, PRECISION)
+    mean_t = res[:, 2].reshape(PRECISION, PRECISION)
+    mean_r = res[:, 3].reshape(PRECISION, PRECISION)
+    std_t = res[:, 4].reshape(PRECISION, PRECISION)
+    std_r = res[:, 5].reshape(PRECISION, PRECISION)
 
     # 插值函数
     get_prob_t = RectBivariateSpline(ro, theta, prob_t, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev

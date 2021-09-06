@@ -266,7 +266,7 @@ def get_random_PE_time(x, y, z, PMT_phi, PMT_theta):
     else:
         return np.random.choice(times2)
 
-def gen_data(x, y, z, PMT_phi, PMT_theta):
+def gen_data(input_data):
     '''
     功能：给定顶点坐标与PMT坐标，返回插值时该点所需要的所有数据
         （一次折射到达的概率， 一次反射+一次折射到达的概率， 
@@ -275,6 +275,7 @@ def gen_data(x, y, z, PMT_phi, PMT_theta):
     x, y, z单位为m
     角度为弧度制
     '''
+    x, y, z, PMT_phi, PMT_theta = input_data
     prob1, times1 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 0, 300)
     prob2, times2 = get_prob_time(x, y, z, PMT_phi, PMT_theta, 1, 150)
     return prob1, prob2, times1.mean(), times2.mean(), times1.std(), times2.std()
@@ -292,12 +293,12 @@ def gen_data(x, y, z, PMT_phi, PMT_theta):
 # print(get_random_PE_time(3,6,-10,0,0))
 # to = time()
 # print(f'time = {to-ti}')
-x = np.random.random(2000) * 10
-y = np.random.random(2000) * 10
-z = np.random.random(2000) * 10
+# x = np.random.random(2000) * 10
+# y = np.random.random(2000) * 10
+# z = np.random.random(2000) * 10
 
-# if __name__ == '__main__':
-    # print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(4000))
+if __name__ == '__main__':
+    print(Timer('get_PE_probability(3,6,10,0,0)', setup='from __main__ import get_PE_probability').timeit(4000))
     # for i in range(2000):
     #    get_PE_probability(x[i], y[i], z[i],0,0)
     # print(get_PE_probability(3, 6, 10,0,0))

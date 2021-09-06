@@ -14,7 +14,7 @@ import genPETruth
 可与draw.py中根据data.h5绘制的probe图像进行对比.
 '''
 
-precision = 1000
+precision = 500
 
 # 画图用网格
 ro = np.linspace(0.2, 17.7, precision)
@@ -34,14 +34,17 @@ if __name__ == '__main__':
     ti = time()
 
     # 多线程
-    pool = multiprocessing.Pool(processes=16)
+    pool = multiprocessing.Pool()
     # 进度条
-    pbar = tqdm(total=precision*precision)
 
     # 模拟光线
-    res = np.array([pool.apply_async(genPETruth.allprob, args=(ros[t], thetas[t]), callback=lambda *x: pbar.update()) for t in range(precision*precision)])
-    res = np.frompyfunc((lambda x: x.get()), 1, 1)(res)
-    res = np.clip(res.reshape(precision, precision).astype(np.float64), 5e-5, np.inf)
+    gpt, gpr = genPETruth.gen_interp()[:2]
+    def allgpt(r, t):
+        t = (t<np.pi)*t + (1-(t<np.pi))*(2*np.pi-t)
+        return gpt(r, t) + gpr(r, t)
+    res = allgpt(ros, thetas)
+
+    res = np.clip(res.reshape(precision, precision), 5e-6, np.inf)
     pool.close()
     pool.join()
 
