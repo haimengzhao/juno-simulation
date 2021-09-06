@@ -50,7 +50,7 @@ def polar_from_xyz(R, theta0, phi0, x, y, z):
 
     return theta, r
 
-def save_file(filename, ParticleTruth, PETruth, Waveform):
+def save_file(filename, ParticleTruth, PETruth, Waveform=None):
     '''
     save data file
 
@@ -61,4 +61,5 @@ def save_file(filename, ParticleTruth, PETruth, Waveform):
     with h5py.File(filename, "w") as opt:
         opt['ParticleTruth'] = ParticleTruth
         opt['PETruth'] = PETruth
-        opt['Waveform'] = Waveform
+        if Waveform != None:
+            opt['Waveform'] = Waveform

@@ -34,6 +34,7 @@ from tqdm import tqdm
 from scripts.event import generate_events
 from scripts.genPETruth import get_PE_Truth
 from scripts.genWaveform import get_waveform_bychunk  
+from scripts.utils import save_file
 
 if __name__ == "__main__":
 
@@ -56,6 +57,14 @@ if __name__ == "__main__":
 
     # 光学过程
     PETruth = get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, args.n)
+
+    # 保存ParticleTruth和PETruth
+    save_file(args.opt, ParticleTruth, PETruth)
+
+    # 中断可直接读取
+    # with h5.File('data.h5', 'r') as inp:
+    #     ParticleTruth = inp['ParticleTruth'][...]
+    #     PETruth = inp['PETruth'][...]
 
     # 生成波形同时保存
     get_waveform_bychunk(args.opt, ParticleTruth, PETruth, ampli=1000, td=10, tr=5, ratio=0.01, noisetype='normal')
