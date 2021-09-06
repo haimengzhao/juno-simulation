@@ -156,7 +156,7 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
                 parameters_of_time[:index][:,4],
                 parameters_of_time[:index][:,5],
                 parameters_of_time[:index][:,6],
-            )
+            )*1e9
 
     print("正在生成PETruth表...")
     pe_tr_dtype = [
