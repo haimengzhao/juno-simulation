@@ -25,30 +25,56 @@ def gen_interp():
     print("正在生成插值函数...")
 
     # 插值用网格
-    ro = np.linspace(0.2, LS_RADIUS, PRECISION)
+    ro = np.concatenate(
+        (
+            np.linspace(0.2, 16.5, PRECISION, endpoint=False),
+            np.linspace(16.5, LS_RADIUS, PRECISION//2)
+        )
+    )
     theta = np.linspace(0, np.pi, PRECISION)
     thetas, ros = np.meshgrid(theta, ro)
 
     # 测试点: yz平面
-    xs = (np.zeros((PRECISION, PRECISION))).flatten()
+    xs = np.zeros(PRECISION**2*3//2)
     ys = (np.sin(thetas) * ros).flatten()
     zs = (np.cos(thetas) * ros).flatten()
 
-    prob_t, prob_r, mean_t, mean_r, std_t, std_r = np.zeros((6, PRECISION, PRECISION))
+    prob_t, prob_r, mean_t, mean_r, std_t, std_r = np.zeros(
+        (6, PRECISION*3//2, PRECISION)
+    )
 
     # 多线程
     pool = multiprocessing.Pool()
 
     # 模拟光线
-    res = np.array(list(tqdm(pool.imap(gen_data, np.stack((xs, ys, zs, np.zeros(PRECISION**2), np.zeros(PRECISION**2)), axis=-1)), total=PRECISION**2)))
+    res = np.array(
+        list(
+            tqdm(
+                pool.imap(
+                    gen_data,
+                    np.stack(
+                        (
+                            xs,
+                            ys,
+                            zs,
+                            np.zeros(PRECISION**2*3//2),
+                            np.zeros(PRECISION**2*3//2)
+                        ),
+                        axis=-1
+                    )
+                ),
+                total=PRECISION**2*3//2
+            )
+        )
+    )
 
     # 储存插值点信息
-    prob_t = res[:, 0].reshape(PRECISION, PRECISION)
-    prob_r = res[:, 1].reshape(PRECISION, PRECISION)
-    mean_t = res[:, 2].reshape(PRECISION, PRECISION)
-    mean_r = res[:, 3].reshape(PRECISION, PRECISION)
-    std_t = res[:, 4].reshape(PRECISION, PRECISION)
-    std_r = res[:, 5].reshape(PRECISION, PRECISION)
+    prob_t = res[:, 0].reshape(-1, PRECISION)
+    prob_r = res[:, 1].reshape(-1, PRECISION)
+    mean_t = res[:, 2].reshape(-1, PRECISION)
+    mean_r = res[:, 3].reshape(-1, PRECISION)
+    std_t = res[:, 4].reshape(-1, PRECISION)
+    std_r = res[:, 5].reshape(-1, PRECISION)
 
     # 插值函数
     get_prob_t = RectBivariateSpline(ro, theta, prob_t, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
@@ -57,6 +83,8 @@ def gen_interp():
     get_mean_r = RectBivariateSpline(ro, theta, mean_r, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
     get_std_t = RectBivariateSpline(ro, theta, std_t, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
     get_std_r = RectBivariateSpline(ro, theta, std_r, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
+
+    breakpoint()
 
     print("插值函数生成完毕！")
     return get_prob_t, get_prob_r, get_mean_t, get_mean_r, get_std_t, get_std_r

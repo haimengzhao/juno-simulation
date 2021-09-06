@@ -6,6 +6,9 @@ simulate.py: 生成模拟数据，保存在hdf5文件中
 -g, --geo: Geometry file
 -o, --output: Output file
 
+可选的参数：
+-p --pmt: Number of PMTs, default is 17612
+
 输出格式：
 文件名opt，格式为hdf5
 
@@ -43,7 +46,7 @@ if __name__ == "__main__":
     parser.add_argument("-n", dest="n", type=int, help="Number of events")
     parser.add_argument("-g", "--geo", dest="geo", type=str, help="Geometry file")
     parser.add_argument("-o", "--output", dest="opt", type=str, help="Output file")
-    parser.add_argument("-p", "--pmt", dest="pmt_count", type=int, help="Number of PMTs", default=17612)
+    parser.add_argument("-p", "--pmt", dest="pmt_count", type=int, help="Number of PMTs, default is 17612", default=17612)
     args = parser.parse_args()
 
     # 读入几何文件
