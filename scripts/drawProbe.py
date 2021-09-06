@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import multiprocessing
 from time import time
-import genPETruth
+from . import genPETruth
 
 '''
 根据模拟时使用的get_PE_probability函数绘制probe图像

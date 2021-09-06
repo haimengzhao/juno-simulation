@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.integrate import quad
 import multiprocessing
-import utils
+from . import utils
 from tqdm import tqdm
 from numba import njit
 
