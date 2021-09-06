@@ -173,11 +173,10 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
             result = np.add.reduceat(Waveform[order], breaks, axis=0)
 
             # 拼接WF表
-            WF = np.array(list(zip(
-                    np.ones(len(Channels))*Events[i], 
-                    Channels, 
-                    list(map(lambda x: x.reshape(-1), np.split(result, len(Channels), axis=0)))
-                    )), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+            WF = np.zeros(len(Channels), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+            WF['EventID'] = np.ones(len(Channels))*Events[i]
+            WF['ChannelID'] = Channels
+            WF['Waveform'] = result
 
             # 放入output队列等待写入文件
             output.put([1, WF])
@@ -235,13 +234,13 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
 
     for i in range(num_processes):
         # 结束任务
-        inqueue.put([sentinal, None])
+        inqueue.put(sentinal)
 
     for p in jobs:
         p.join()
     
     # 结束文件写入
-    output.put(None)
+    output.put([0, None])
     proc.join()
 
     

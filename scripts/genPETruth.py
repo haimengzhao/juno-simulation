@@ -120,15 +120,15 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
         r, theta = to_relative_position(x, y, z, PMT_phi, PMT_theta)
         return np.where(
             rng.random(r.shape) < prob_t / (prob_t + prob_r),
-            rng.normal(
+            min(0, rng.normal(
                 get_mean_t(r, theta),
                 get_std_t(r, theta)
-            ),
-            rng.normal(
+            )),
+            min(0, rng.normal(
                 get_mean_r(r, theta),
                 get_std_r(r, theta)
-            )
-            )
+            ))
+        )
     PE_prob_cumsum = np.zeros((number_of_events, PMT_COUNT))
     PE_prob_array = np.zeros((number_of_events, PMT_COUNT, 2))
 
