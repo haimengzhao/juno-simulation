@@ -1,7 +1,8 @@
+from enum import Flag
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from .utils import save_file
+import multiprocessing as mp
 import h5py
 
 '''
@@ -139,50 +140,109 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
     Events, Eindex = np.unique(EventID, return_index=True)
     Eindex = np.hstack([Eindex, np.array(len(EventID))])
 
-    # write to file
-    f =  h5py.File(filename, "a")
-    ptds = f.create_dataset('ParticleTruth', data=ParticleTruth)
-    petds = f.create_dataset('PETruth', data=PETruth)
+    # 分Event并行化生成Waveform
+    # ref:
+    # https://stackoverflow.com/questions/15704010/write-data-to-hdf-file-using-multiprocessing
+    num_processes = mp.cpu_count() - 1
+    print(num_processes)
+    sentinal = None
+    pbar = tqdm(total=len(Eindex)-1)
 
-    # 分Event生成
-    for i in tqdm(range(len(Eindex)-1)):
-        # 采样
-        length = Eindex[i+1] - Eindex[i]
-        t = np.tile(np.arange(0, 1000, 1), (length, 1))
+    def getWF_mp(inqueue, output):
+        for i in iter(inqueue.get, sentinal):
+            # 采样
+            length = Eindex[i+1] - Eindex[i]
+            t = np.tile(np.arange(0, 1000, 1), (length, 1))
 
-        # 生成Waveform
-        if noisetype == 'normal':
-            Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
-        elif noisetype == 'sin':
-            Waveform = sin_noise(t, np.pi/1e30, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
-        else:
-            print(f'{noisetype} noise not implemented, use normal noise instead!')
-            Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+            # 生成Waveform
+            if noisetype == 'normal':
+                Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+            elif noisetype == 'sin':
+                Waveform = sin_noise(t, np.pi/1e30, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+            else:
+                print(f'{noisetype} noise not implemented, use normal noise instead!')
+                Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
 
-        # numpy groupby
-        # ref:
-        # https://stackoverflow.com/questions/58546957/sum-of-rows-based-on-index-with-numpy
-        Channels, idx = np.unique(PETruth[Eindex[i]:Eindex[i+1]]['ChannelID'], return_inverse=True)
-        order = np.argsort(idx)
-        breaks = np.flatnonzero(np.concatenate(([1], np.diff(idx[order]))))
-        result = np.add.reduceat(Waveform[order], breaks, axis=0)
-        WF = np.array(list(zip(
-                np.ones(len(Channels))*Events[i], 
-                Channels, 
-                list(map(lambda x: x.reshape(-1), np.split(result, len(Channels), axis=0)))
-                )), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+            # numpy groupby
+            # ref:
+            # https://stackoverflow.com/questions/58546957/sum-of-rows-based-on-index-with-numpy
+            Channels, idx = np.unique(PETruth[Eindex[i]:Eindex[i+1]]['ChannelID'], return_inverse=True)
+            order = np.argsort(idx)
+            breaks = np.flatnonzero(np.concatenate(([1], np.diff(idx[order]))))
+            # 同Channel波形相加
+            result = np.add.reduceat(Waveform[order], breaks, axis=0)
 
-        # incremental write
-        if i == 0:
-            # initialize dataset
-            wfds = f.create_dataset('Waveform', (len(Channels),), maxshape=(None,), 
-                    dtype=np.dtype([('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))]))
-        else:
-            # resize dataset
-            wfds.resize(wfds.shape[0] + len(Channels), axis=0)
-        # write waveform
-        wfds[-len(Channels):] = WF
+            # 拼接WF表
+            WF = np.array(list(zip(
+                    np.ones(len(Channels))*Events[i], 
+                    Channels, 
+                    list(map(lambda x: x.reshape(-1), np.split(result, len(Channels), axis=0)))
+                    )), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+
+            # 放入output队列等待写入文件
+            output.put([1, WF])
+
+
+    def write_file(output):
+        # open file
+        f =  h5py.File(filename, "a")
+        # 初始化Waveform表的Flag
+        init = True
+
+        while True:
+            # 获取待写入WF
+            flag = output.get()[0]
+            WF = output.get()[1]
+            if flag:
+                if init:
+                    # 初始化Waveform表
+                    wfds = f.create_dataset('Waveform', (len(WF),), maxshape=(None,), 
+                            dtype=np.dtype([('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))]))
+                    init = False
+                else:
+                    # 扩大Waveform表
+                    wfds.resize(wfds.shape[0] + len(WF), axis=0)
+
+                # 写入WF
+                wfds[-len(WF):] = WF
+                pbar.update()
+            else:
+                # 写入完成
+                break
+
+        # 关闭文件
+        f.close()
+
+    # 待写入文件队列
+    output = mp.Queue()
+    # 待执行任务队列
+    inqueue = mp.Queue()
+    # 进程表
+    jobs = []
+    # 写入文件进程
+    proc = mp.Process(target=write_file, args=(output, ))
+    proc.start()
+
+    for i in range(num_processes):
+        # 生成WF进程
+        p = mp.Process(target=getWF_mp, args=(inqueue, output))
+        jobs.append(p)
+        p.start()
+
+    for i in range(len(Eindex)-1):
+        # 分配任务
+        inqueue.put(i)
+
+    for i in range(num_processes):
+        # 结束任务
+        inqueue.put([sentinal, None])
+
+    for p in jobs:
+        p.join()
     
-    # close file
-    f.close()
+    # 结束文件写入
+    output.put(None)
+    proc.join()
+
+    
 
