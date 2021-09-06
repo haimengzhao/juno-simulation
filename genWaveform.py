@@ -115,11 +115,12 @@ def get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal
 
 def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal'):
     '''
-    根据PETruth生成波形(对于每个Event分步进行,以节省内存)
+    根据PETruth生成波形(对于每个Event分步进行,以节省内存)并保存
 
-    输入输出与get_waveform相同:
-
-    输入: PETruth (Structured Array) [EventID, ChannelID, PETime]
+    输入: 
+    filename, 保存文件名;
+    ParticleTruth; PETruth;
+    PETruth (Structured Array) [EventID, ChannelID, PETime];
 
     参数:
     ampli, 波形高度;
@@ -129,9 +130,10 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
     noisetype, 噪声形式: 'normal' 正态分布噪声, 'sin' 正弦噪声; 
 
     返回:
-    Waveform (Structured Array) [EventID, ChannelID, Waveform]
+    无
     '''
 
+    # Event切割
     EventID = PETruth['EventID']
 
     Events, Eindex = np.unique(EventID, return_index=True)
@@ -159,10 +161,12 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
         Channels, idx = np.unique(PETruth[Eindex[0]:Eindex[1]]['ChannelID'], return_inverse=True)
         order = np.argsort(idx)
         breaks = np.flatnonzero(np.concatenate(([1], np.diff(idx[order]))))
+        # 每个Channel波形求和
         result = np.add.reduceat(Waveform[order], breaks, axis=0)
+        # 拼接Waveform表
         WF = np.array(list(zip(
-                np.ones((len(Channels), 1))*Events[0], 
-                Channels.reshape(-1, 1), 
+                np.ones(len(Channels))*Events[0], 
+                Channels, 
                 list(map(lambda x: x.reshape(-1), np.split(result, len(Channels), axis=0)))
                 )), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
 
@@ -173,7 +177,7 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
             wfds = f.create_dataset('Waveform', (len(Channels),), maxshape=(None,), 
                             dtype=np.dtype([('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))]))
             wfds[:] = WF
-            # print(wfds.shape)
+
 
         for i in tqdm(range(1, len(Eindex)-1)):
             # 采样
@@ -197,17 +201,19 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
             breaks = np.flatnonzero(np.concatenate(([1], np.diff(idx[order]))))
             result = np.add.reduceat(Waveform[order], breaks, axis=0)
             WF = np.array(list(zip(
-                    np.ones((len(Channels), 1))*Events[i], 
-                    Channels.reshape(-1, 1), 
+                    np.ones(len(Channels))*Events[i], 
+                    Channels, 
                     list(map(lambda x: x.reshape(-1), np.split(result, len(Channels), axis=0)))
                     )), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
 
+            # incremental write
             with h5py.File(filename, "a") as f:
                 wfds = f['Waveform']
                 wfds.resize(wfds.shape[0] + len(Channels), axis=0)
                 wfds[-len(Channels):] = WF
-                # print(wfds.shape)
+
     else:
+        # 只有一个Event
         waveform = get_waveform(PETruth, ampli, td, tr, ratio, noisetype)
         EventID = waveform['EventID']
         ChannelID = waveform['ChannelID']
