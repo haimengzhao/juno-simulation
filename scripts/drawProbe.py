@@ -1,12 +1,8 @@
 import numpy as np
-import get_prob_time as prob
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import multiprocessing
-from multiprocessing import shared_memory
-from multiprocessing.managers import SharedMemoryManager
 from time import time
-from tqdm import tqdm
 import genPETruth
 
 '''

@@ -1,7 +1,4 @@
 import numpy as np
-from time import time
-import multiprocessing
-from timeit import Timer
 import numexpr as ne
 
 # 设置ne最大线程数，防止在并行时占用太多资源

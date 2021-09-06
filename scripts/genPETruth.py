@@ -1,4 +1,3 @@
-from time import time
 import numpy as np
 from tqdm import tqdm
 import multiprocessing
@@ -6,7 +5,7 @@ from scipy.interpolate import RectBivariateSpline
 import numexpr as ne
 from numba import njit
 import utils
-from get_prob_time import gen_data
+from getProbTime import gen_data
 '''
 gen_PETruth.py: 根据光学部分，ParticleTruth和PETruth，得到PETruth
 根据模拟时使用的get_PE_probability函数绘制probe图像

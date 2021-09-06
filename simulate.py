@@ -31,10 +31,9 @@ import argparse
 import numpy as np
 import h5py as h5
 from tqdm import tqdm
-from event import generate_events
-from genPETruth import get_PE_Truth
-from genWaveform import get_waveform, get_waveform_bychunk  
-from utils import save_file
+from scripts.event import generate_events
+from scripts.genPETruth import get_PE_Truth
+from scripts.genWaveform import get_waveform_bychunk  
 
 if __name__ == "__main__":
 

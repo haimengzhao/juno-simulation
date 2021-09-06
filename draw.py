@@ -6,7 +6,7 @@ from matplotlib import cm
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy.interpolate import interp2d
 from tqdm import tqdm
-from utils import polar_from_xyz
+from scripts.utils import polar_from_xyz
 
 # constants
 Ri = 17.71e3 # inner radius / mm
