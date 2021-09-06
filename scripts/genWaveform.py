@@ -235,13 +235,13 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
 
     for i in range(num_processes):
         # 结束任务
-        inqueue.put([sentinal, None])
+        inqueue.put(sentinal)
 
     for p in jobs:
         p.join()
     
     # 结束文件写入
-    output.put(None)
+    output.put([0, None])
     proc.join()
 
     
