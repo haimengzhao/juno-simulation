@@ -117,7 +117,7 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
         用于代替光学部分中的get_random_PE_time，使用插值函数
         '''
         r, theta = to_relative_position(x, y, z, PMT_phi, PMT_theta)
-        if(np.any(prob_t + prob_r == 0))
+        if(np.any(prob_t + prob_r == 0)):
             print("侦测到除数为0，这不应该发生，触发断点以调查")
             breakpoint()
         return np.where(
