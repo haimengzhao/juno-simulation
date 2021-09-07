@@ -3,7 +3,9 @@ from tqdm import tqdm
 import multiprocessing
 import numexpr as ne
 from numba import njit
-from . import utils
+import h5py as h5
+import gc
+from scipy.spatial import KDTree
 '''
 gen_PETruth.py: 根据光学部分，ParticleTruth和PETruth，得到PETruth
 根据模拟时使用的get_PE_probability函数绘制probe图像
@@ -24,10 +26,22 @@ PETruth['ChannelID'] = []
 PETruth['PETime'] = []
 PMT_num = 17612
 
+with h5.File('/home/debian/project-1-junosap-pmtsmasher/geo.h5', "r") as geo:
+    # 只要求模拟17612个PMT
+    PMT_list = geo['Geometry'][...]
+
+thetas = PMT_list['theta'][:PMT_num]
+phis = PMT_list['phi'][:PMT_num]
+PMT_x = Ro * np.sin(thetas*np.pi/180) * np.cos(phis*np.pi/180)
+PMT_y = Ro * np.sin(thetas*np.pi/180) * np.sin(phis*np.pi/180)
+PMT_z = Ro * np.cos(thetas*np.pi/180)
+PMTs = np.stack((PMT_x, PMT_y, PMT_z))
+kdtree = KDTree(np.stack((PMT_x, PMT_y, PMT_z), axis=-1), compact_nodes=True)
+
 def transist(coordinates, velocities, times, events, can_reflect):
     # 求解折射点
     cv = np.einsum('kn, kn->n', coordinates, velocities)
-    ts = -cv + np.sqrt(cv**2 - (np.einsum('kn, kn->n', coordinates, coordinates)-Ri**2))    #到达液闪边界的时间
+    ts = -cv + np.sqrt(cv**2 - np.einsum('kn, kn->n', coordinates, coordinates) + Ri**2)   #到达液闪边界的时间
     edge_points = coordinates + ts * velocities
     
     # 计算增加的时间
@@ -42,7 +56,6 @@ def transist(coordinates, velocities, times, events, can_reflect):
     # 判断全反射
     max_incidence_angle = np.arcsin(n_water/n_LS)
     can_transmit = (incidence_angles < max_incidence_angle)
-    all_reflect = 1 - can_transmit
 
     #计算折射光，反射光矢量与位置
     reflected_velocities = velocities - 2 * vertical_of_incidence * normal_vectors
@@ -59,13 +72,15 @@ def transist(coordinates, velocities, times, events, can_reflect):
     # 选出需要折射和反射的光子
     probs = np.random.random(times.shape[0])
     need_transmit = (probs>R) * can_transmit
-    need_reflect = (1-need_transmit) * can_reflect
+    need_reflect = np.logical_not(need_transmit) * can_reflect.astype(bool)
 
     # 处理需要折射出去的光子
-    hit_PMT(coordinates[need_transmit], new_velocities[need_transmit], new_times[need_transmit], events[need_transmit], can_reflect[need_transmit])
+    if need_transmit.any():
+        hit_PMT(coordinates[:, need_transmit], new_velocities[:, need_transmit], new_times[need_transmit], events[need_transmit], can_reflect[need_transmit], PMTs)
 
     # 处理需要继续反射的光子
-    transist(coordinates[need_reflect], reflected_velocities[need_reflect], new_times[need_reflect], events[need_reflect], np.zeros(need_reflect.shape[0]))
+    if need_reflect.any():
+        transist(coordinates[:, need_reflect], reflected_velocities[:, need_reflect], new_times[need_reflect], events[need_reflect], np.zeros(need_reflect.sum()))
 
 
 
@@ -74,43 +89,67 @@ def go_inside(coordinates, velocities, times, events):
 
 
 
-def distance(coordinates, velocities, PMT_coordinates):
+def find_hit_PMT(coordinates, velocities):
     '''
     coordinates: (3, n)
     PMT_coordinates: (3, m)
     接收一族光线，给出其未来所有时间内与给定PMT的最近距离
     注意：光线是有方向的，如果光子将越离越远，那么将返回负数距离
     '''
-    coordinates = coordinates.reshape(3, 1, coordinates.shape[1])
-    PMT_coordinates = PMT_coordinates.reshape(3, PMT_coordinates.shape[1], 1)
-    velocities = velocities.reshape(3, 1, velocities.shape[1])
+    # 查找在球面上最邻近的PMT
+    cv = np.einsum('kn, kn->n', coordinates, velocities)
+    ts = -cv + np.sqrt(cv**2 - (np.einsum('kn, kn->n', coordinates, coordinates)-Ro**2))    #到达液闪边界的时间
+    edge_points = coordinates + ts * velocities
+    points = np.stack((edge_points[0, :], edge_points[1, :], edge_points[2, :]), axis=-1)
+    nearest_PMT_index = kdtree.query(points, workers=-1)[1]
 
-    new_ts = np.einsum('kmn, kn->mn', PMT_coordinates - coordinates, velocities)
+    # 计算光线与这个PMT的最短距离
+    new_ts = np.einsum('kn, kn->n', PMTs[:, nearest_PMT_index] - coordinates, velocities)
     nearest_points = coordinates + new_ts * velocities
-    distances = np.linalg.norm(nearest_points - PMT_coordinates, axis=0) * np.sign(new_ts) 
-    return distances
+    distances = np.linalg.norm(nearest_points - PMTs[:, nearest_PMT_index], axis=0) * np.sign(new_ts) 
+    allow = (distances < r_PMT) * (distances > 0)
+
+    return nearest_PMT_index, allow
 
 
-def hit_this_PMT(coordinates, velocities, times, events, can_reflect, PMT_coordinates):
-    pass
+def hit_PMT(coordinates, velocities, times, events, can_reflect, fromthis=False):
+    nearest_PMT_index, allow = find_hit_PMT(coordinates, velocities)
 
+    for i in np.unique(nearest_PMT_index):
+        photon_index = np.where(allow[np.where(nearest_PMT_index == i)[0]])[0]
+        if photon_index.shape[0]>0:
+            hit_this_PMT(coordinates[:, photon_index], velocities[:, photon_index], times[photon_index], 
+                         events[photon_index], can_reflect[photon_index], i)
 
-def hit_PMT(coordinates, velocities, times, events, can_reflect, PMT_coordinates, fromthis=False):
-    distances = distance(coordinates, velocities, PMT_coordinates)
-    allowed = distances < r_PMT
-    photon_num = times.shape[0]
-
-    PMT2edge = coordinates.reshape(3, 1, photon_num) - PMT_coordinates.reshape(3, PMT_num, 1)
-    ts = -np.einsum('kmn, kn->mn', PMT2edge, velocities) +\
-          np.sqrt(np.einsum('kmn, kn->mn', PMT2edge, velocities)**2 - np.einsum('kmn, kmn->mn', PMT2edge, PMT2edge) + r_PMT**2)
+    
+def hit_this_PMT(coordinates, velocities, times, events, can_reflect, PMT_index):
+    PMT2edge = coordinates - PMTs[:, PMT_index].reshape(3, 1)
+    check = np.einsum('kn, kn->n', PMT2edge, velocities)**2 - np.einsum('kn, kn->n', PMT2edge, PMT2edge) + r_PMT**2
+    ts = -np.einsum('kn, kn->n', PMT2edge, velocities) +\
+          np.sqrt(check)
     arrive_times = times + (n_water/c)*ts
 
-    write(allowed, events, arrive_times, PETruth)
+    write(events, PMT_index, arrive_times, PETruth)
 
 
-def write(allowed, events, times, PETruth):
-    for PMT_index, photon_index in np.where(allowed):
-        PETruth['EventID'].append(events[photon_index])
+
+def write(events, PMT_index, times, PETruth):
+    for photon in range(events.shape[0]):
+        PETruth['EventID'].append(events[photon])
         PETruth['ChannelID'].append(PMT_index)
-        PETruth['PETime'].append(times[photon_index])
-        
+        PETruth['PETime'].append(times[photon])
+
+
+photon = 10000
+coordinates = np.tile(np.array([3, 6, 10]).reshape(3, 1), (1, photon))
+t = np.random.random(photon) * np.pi
+p = np.random.random(photon) * 2 * np.pi
+vxs = np.sin(t) * np.cos(p)
+vys = np.sin(t) * np.sin(p)
+vzs = np.cos(t)
+try_velocities = np.stack((vxs, vys, vzs))
+events = np.ones(photon)
+times = np.zeros(photon)
+
+transist(coordinates, try_velocities, times, events, events)
+print(PETruth)
