@@ -197,7 +197,7 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
                 if ev == write_chunk:
                     WF = output.get()[1]
                 else:
-                    WF = np.vstack([WF, output.get()[1]])
+                    WF = np.concatenate((WF, output.get()[1]), axis=0)
                 ev -= 1
                 if ev == 0:
                     if init:
