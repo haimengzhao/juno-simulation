@@ -36,7 +36,7 @@ import h5py as h5
 import time
 from scripts.event import generate_events
 from scripts.genPETruth import get_PE_Truth
-from scripts.genWaveform import get_waveform_bychunk  
+from scripts.genWaveform import get_waveform_bychunk, get_waveform
 from scripts.utils import save_file
 
 if __name__ == "__main__":
@@ -72,7 +72,7 @@ if __name__ == "__main__":
     #     PETruth = inp['PETruth'][...]
 
     # 生成波形同时保存
-    get_waveform_bychunk(args.opt, ParticleTruth, PETruth, ampli=1000, td=10, tr=5, ratio=0.01, noisetype='normal')
+    get_waveform(args.opt, PETruth, ampli=1000, td=10, tr=5, ratio=0.01, noisetype='normal')
 
     end_time = time.time()
     print('data.h5全部生成完成!')

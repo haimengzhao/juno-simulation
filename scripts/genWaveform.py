@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 from tqdm import tqdm
 import multiprocessing as mp
 import h5py
@@ -59,9 +58,9 @@ def normal_noise(t, sigma=5):
     return np.random.normal(0, sigma, t.shape)
 
 
-def get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal'):
+def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal'):
     '''
-    根据PETruth生成波形
+    根据PETruth单进程生成波形(对于每个Event分步进行,以节省内存)
 
     输入: PETruth (Structured Array) [EventID, ChannelID, PETime]
 
@@ -76,47 +75,66 @@ def get_waveform(PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal
     Waveform (Structured Array) [EventID, ChannelID, Waveform]
     '''
     
+    # Event切割
+    EventID = PETruth['EventID']
+
+    Events, Eindex = np.unique(EventID, return_index=True)
+    Eindex = np.hstack([Eindex, np.array(len(EventID))])
+
+    init = True
+
+    f =  h5py.File(filename, "a")
+
     # 读取PETruth
-    # 为了节省内存不再使用
-    # EventID = PETruth['EventID']
-    # ChannelID = PETruth['ChannelID']
-    # PETime = PETruth['PETime']
+    for i in tqdm(range(len(Eindex)-1)):
+        # 采样
+        length = Eindex[i+1] - Eindex[i]
+        t = np.tile(np.arange(0, 1000, 1), (length, 1))
 
-    length = len(PETruth)
+        # 生成Waveform
+        if noisetype == 'normal':
+            Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+        elif noisetype == 'sin':
+            Waveform = sin_noise(t, np.pi/1e30, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+        else:
+            print(f'{noisetype} noise not implemented, use normal noise instead!')
+            Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
 
-    # 采样
-    t = np.tile(np.arange(0, 1000, 1), (length, 1))
+        # numpy groupby
+        # ref:
+        # https://stackoverflow.com/questions/58546957/sum-of-rows-based-on-index-with-numpy
+        Channels, idx = np.unique(PETruth[Eindex[i]:Eindex[i+1]]['ChannelID'], return_inverse=True)
+        order = np.argsort(idx)
+        breaks = np.flatnonzero(np.concatenate(([1], np.diff(idx[order]))))
+        # 同Channel波形相加
+        result = np.add.reduceat(Waveform[order], breaks, axis=0)
 
-    # 生成Waveform
-    if noisetype == 'normal':
-        Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth['PETime'].reshape(-1, 1), ampli, td, tr)
-    elif noisetype == 'sin':
-        Waveform = sin_noise(t, np.pi/1e30, ratio * ampli) + double_exp_model(t - PETruth['PETime'].reshape(-1, 1), ampli, td, tr)
-    else:
-        print(f'{noisetype} noise not implemented, use normal noise instead!')
-        Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth['PETime'].reshape(-1, 1), ampli, td, tr)
+        # 拼接WF表
+        WF = np.empty(len(Channels), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+        WF['EventID'] = np.ones(len(Channels))*Events[i]
+        WF['ChannelID'] = Channels
+        WF['Waveform'] = result
 
-    # 拼接Waveform表
-    WF = np.array(list(zip(
-        PETruth['EventID'], 
-        PETruth['ChannelID'], 
-        list(map(lambda x: x.reshape(-1), np.split(Waveform, length, axis=0)))
-        )), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+        if init:
+            # 初始化Waveform表
+            wfds = f.create_dataset('Waveform', (len(WF),), maxshape=(None,), 
+                    dtype=np.dtype([('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))]))
+            init = False
+        else:
+            # 扩大Waveform表
+            wfds.resize(wfds.shape[0] + len(WF), axis=0)
 
-    # 同事件同PMT波形叠加
-    WF_pd = pd.DataFrame.from_records(WF.tolist(), columns=['EventID', 'ChannelID', 'Waveform'])
-    # 释放内存
-    del WF
-    WF_pd = WF_pd.groupby(['EventID', 'ChannelID'], as_index=False).agg({'Waveform': np.sum})
-    WF = WF_pd.to_records(index=False).astype([('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
-    del WF_pd
-    # 返回Waveform表
-    return WF
+        # 写入WF
+        wfds[-len(WF):] = WF
+
+    f.close()
 
 
-def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal'):
+
+
+def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal'):
     '''
-    根据PETruth生成波形(对于每个Event分步进行,以节省内存)并保存
+    根据PETruth多进程生成波形(对于每个Event分步进行,以节省内存)并保存
 
     输入: 
     filename, 保存文件名;
@@ -143,7 +161,7 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
     # 分Event并行化生成Waveform
     # ref:
     # https://stackoverflow.com/questions/15704010/write-data-to-hdf-file-using-multiprocessing
-    num_processes = mp.cpu_count() - 1
+    num_processes = 8
     sentinal = None
     write_chunk = 50
     pbar_write = tqdm(total=(len(Eindex)-1)/write_chunk)
@@ -181,7 +199,7 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
 
             # 放入output队列等待写入文件
             pbar_getwf.update()
-            output.put([1, WF])
+            output.put([1, WF], block=False)
 
 
     def write_file(output):
@@ -255,7 +273,7 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
         p.join()
     
     # 结束文件写入
-    output.put([0, None])
+    output.put([0, None], block=False)
     proc.join()
     pbar_write.close()
     pbar_getwf.close()
