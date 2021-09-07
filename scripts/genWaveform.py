@@ -1,9 +1,9 @@
-from enum import Flag
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import multiprocessing as mp
 import h5py
+import numexpr as ne
 
 '''
 电子学任务
@@ -25,7 +25,7 @@ def double_exp_model(t, ampli=1000, td=10, tr=5):
     f(t) = ampli*exp(-t/td)*(1-exp(-t/tr)), t > 0
            0,                               t <= 0
     '''
-    return (t > 0) * ampli * np.exp(- t / td) * (1 - np.exp(- t / tr))
+    return ne.evaluate('(t > 0) * ampli * exp(- t / td) * (1 - exp(- t / tr))')
 
 
 def sin_noise(t, period=np.pi/1e30, ampli=1e-2):
@@ -146,7 +146,8 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
     num_processes = mp.cpu_count() - 1
     sentinal = None
     write_chunk = 50
-    pbar = tqdm(total=(len(Eindex)-1)/write_chunk)
+    pbar_write = tqdm(total=(len(Eindex)-1)/write_chunk)
+    pbar_getwf = tqdm(total=(len(Eindex)-1))
 
     def getWF_mp(inqueue, output):
         for i in iter(inqueue.get, sentinal):
@@ -179,6 +180,7 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
             WF['Waveform'] = result
 
             # 放入output队列等待写入文件
+            pbar_getwf.update()
             output.put([1, WF])
 
 
@@ -212,14 +214,14 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
 
                     # 写入WF
                     wfds[-len(WF):] = WF
-                    pbar.update()
+                    pbar_write.update()
                     ev = write_chunk
             else:
                 # 写入完成
                 if len(WF) > 0:
                     wfds.resize(wfds.shape[0] + len(WF), axis=0)
                     wfds[-len(WF):] = WF
-                    pbar.update()
+                    pbar_write.update()
                 break
 
         # 关闭文件
@@ -255,7 +257,8 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
     # 结束文件写入
     output.put([0, None])
     proc.join()
-    pbar.close()
+    pbar_write.close()
+    pbar_getwf.close()
 
     
 

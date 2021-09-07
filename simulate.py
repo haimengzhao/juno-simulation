@@ -33,13 +33,15 @@ Waveform  波形     '<i2', (1000,)
 import argparse
 import numpy as np
 import h5py as h5
-from tqdm import tqdm
+import time
 from scripts.event import generate_events
 from scripts.genPETruth import get_PE_Truth
 from scripts.genWaveform import get_waveform_bychunk  
 from scripts.utils import save_file
 
 if __name__ == "__main__":
+
+    start_time = time.time()
 
     rng = np.random.default_rng()
     # 处理命令行
@@ -71,4 +73,8 @@ if __name__ == "__main__":
 
     # 生成波形同时保存
     get_waveform_bychunk(args.opt, ParticleTruth, PETruth, ampli=1000, td=10, tr=5, ratio=0.01, noisetype='normal')
+
+    end_time = time.time()
+    print('data.h5全部生成完成!')
+    print('总共用时: %.2fs' % (end_time-start_time))
 
