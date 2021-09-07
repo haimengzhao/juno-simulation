@@ -192,12 +192,13 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
 
         while True:
             # 获取待写入WF
-            flag = output.get()[0]
+            getoutput = output.get()
+            flag = getoutput[0]
             if flag:
                 if ev == write_chunk:
-                    WF = output.get()[1]
+                    WF = getoutput[1]
                 else:
-                    WF = np.concatenate((WF, output.get()[1]), axis=0)
+                    WF = np.concatenate((WF, getoutput[1]), axis=0)
                 ev -= 1
                 if ev == 0:
                     if init:
@@ -254,6 +255,7 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
     # 结束文件写入
     output.put([0, None])
     proc.join()
+    pbar.close()
 
     
 
