@@ -44,7 +44,7 @@ def gen_interp():
     )
 
     # 多线程
-    pool = multiprocessing.Pool()
+    pool = multiprocessing.Pool(8)
 
     # 模拟光线
     res = np.array(
@@ -84,7 +84,6 @@ def gen_interp():
     get_std_t = RectBivariateSpline(ro, theta, std_t, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
     get_std_r = RectBivariateSpline(ro, theta, std_r, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
 
-    breakpoint()
 
     print("插值函数生成完毕！")
     return get_prob_t, get_prob_r, get_mean_t, get_mean_r, get_std_t, get_std_r
@@ -118,16 +117,19 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
         用于代替光学部分中的get_random_PE_time，使用插值函数
         '''
         r, theta = to_relative_position(x, y, z, PMT_phi, PMT_theta)
+        if(np.any(prob_t + prob_r == 0))
+            print("侦测到除数为0，这不应该发生，触发断点以调查")
+            breakpoint()
         return np.where(
             rng.random(r.shape) < prob_t / (prob_t + prob_r),
-            min(0, rng.normal(
+            np.clip(rng.normal(
                 get_mean_t(r, theta),
                 get_std_t(r, theta)
-            )),
-            min(0, rng.normal(
+            ), 0, None),
+            np.clip(rng.normal(
                 get_mean_r(r, theta),
                 get_std_r(r, theta)
-            ))
+            ), 0, None)
         )
     PE_prob_cumsum = np.zeros((number_of_events, PMT_COUNT))
     PE_prob_array = np.zeros((number_of_events, PMT_COUNT, 2))
@@ -184,7 +186,6 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
                 parameters_of_time[:index][:,5],
                 parameters_of_time[:index][:,6],
             )*1e9
-
     print("正在生成PETruth表...")
     pe_tr_dtype = [
         ('EventID', '<i4'),

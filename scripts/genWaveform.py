@@ -143,7 +143,7 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
     # 分Event并行化生成Waveform
     # ref:
     # https://stackoverflow.com/questions/15704010/write-data-to-hdf-file-using-multiprocessing
-    num_processes = mp.cpu_count() - 1
+    num_processes = 8
     print(num_processes)
     sentinal = None
     pbar = tqdm(total=len(Eindex)-1)
