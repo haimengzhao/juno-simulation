@@ -144,9 +144,9 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
     # ref:
     # https://stackoverflow.com/questions/15704010/write-data-to-hdf-file-using-multiprocessing
     num_processes = mp.cpu_count() - 1
-    print(num_processes)
     sentinal = None
-    pbar = tqdm(total=len(Eindex)-1)
+    write_chunk = 50
+    pbar = tqdm(total=(len(Eindex)-1)/write_chunk)
 
     def getWF_mp(inqueue, output):
         for i in iter(inqueue.get, sentinal):
@@ -173,7 +173,7 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
             result = np.add.reduceat(Waveform[order], breaks, axis=0)
 
             # 拼接WF表
-            WF = np.zeros(len(Channels), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+            WF = np.empty(len(Channels), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
             WF['EventID'] = np.ones(len(Channels))*Events[i]
             WF['ChannelID'] = Channels
             WF['Waveform'] = result
@@ -187,26 +187,38 @@ def get_waveform_bychunk(filename, ParticleTruth, PETruth, ampli=1000, td=10, tr
         f =  h5py.File(filename, "a")
         # 初始化Waveform表的Flag
         init = True
+        # 多Event同时写入
+        ev = write_chunk
 
         while True:
             # 获取待写入WF
             flag = output.get()[0]
-            WF = output.get()[1]
             if flag:
-                if init:
-                    # 初始化Waveform表
-                    wfds = f.create_dataset('Waveform', (len(WF),), maxshape=(None,), 
-                            dtype=np.dtype([('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))]))
-                    init = False
+                if ev == write_chunk:
+                    WF = output.get()[1]
                 else:
-                    # 扩大Waveform表
-                    wfds.resize(wfds.shape[0] + len(WF), axis=0)
+                    WF = np.vstack([WF, output.get()[1]])
+                ev -= 1
+                if ev == 0:
+                    if init:
+                        # 初始化Waveform表
+                        wfds = f.create_dataset('Waveform', (len(WF),), maxshape=(None,), 
+                                dtype=np.dtype([('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))]))
+                        init = False
+                    else:
+                        # 扩大Waveform表
+                        wfds.resize(wfds.shape[0] + len(WF), axis=0)
 
-                # 写入WF
-                wfds[-len(WF):] = WF
-                pbar.update()
+                    # 写入WF
+                    wfds[-len(WF):] = WF
+                    pbar.update()
+                    ev = write_chunk
             else:
                 # 写入完成
+                if len(WF) > 0:
+                    wfds.resize(wfds.shape[0] + len(WF), axis=0)
+                    wfds[-len(WF):] = WF
+                    pbar.update()
                 break
 
         # 关闭文件
