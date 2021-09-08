@@ -59,9 +59,9 @@ if __name__ == "__main__":
 
     # 生成顶点
     ParticleTruth, PhotonTruth = generate_events(args.n)
-
+    
     # 光学过程
-    PETruth = get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, args.n)
+    PETruth = get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list)
 
     # 保存ParticleTruth和PETruth
     save_file(args.opt, ParticleTruth, PETruth)

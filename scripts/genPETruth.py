@@ -6,6 +6,7 @@ from numba import njit
 import h5py as h5
 import gc
 from scipy.spatial import KDTree
+from .utils import xyz_from_spher
 '''
 gen_PETruth.py: 根据光学部分，ParticleTruth和PETruth，得到PETruth
 根据模拟时使用的get_PE_probability函数绘制probe图像
@@ -18,25 +19,79 @@ eta = n_LS / n_water
 Ri = 17.71
 Ro = 19.5
 r_PMT = 0.508/2
-c = 3e8
+c = 0.3
 
 PETruth = {}
 PETruth['EventID'] = []
 PETruth['ChannelID'] = []
 PETruth['PETime'] = []
-PMT_num = 17612
+PMTs = np.array([[1,2], [1,2], [1,2]])
+kdtree = KDTree(PMTs)
 
-with h5.File('/home/debian/project-1-junosap-pmtsmasher/geo.h5', "r") as geo:
-    # 只要求模拟17612个PMT
-    PMT_list = geo['Geometry'][...]
+def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list):
+    '''
+    从ParticleTruth和PhotonTruth, 结合PMT几何信息，给出PETruth
+    一次并行计算event_num // 10 个event
+    '''
+    # 初始化全局变量，我担心跑两遍会出奇怪的问题
+    global PETruth, PMTs, kdtree
+    PETruth = {}
+    PETruth['EventID'] = []
+    PETruth['ChannelID'] = []
+    PETruth['PETime'] = []
 
-thetas = PMT_list['theta'][:PMT_num]
-phis = PMT_list['phi'][:PMT_num]
-PMT_x = Ro * np.sin(thetas*np.pi/180) * np.cos(phis*np.pi/180)
-PMT_y = Ro * np.sin(thetas*np.pi/180) * np.sin(phis*np.pi/180)
-PMT_z = Ro * np.cos(thetas*np.pi/180)
-PMTs = np.stack((PMT_x, PMT_y, PMT_z))
-kdtree = KDTree(np.stack((PMT_x, PMT_y, PMT_z), axis=-1))
+    event_num = ParticleTruth.shape[0]
+    PMT_x, PMT_y, PMT_z = xyz_from_spher(
+        Ro, PMT_list['theta'], PMT_list['phi']
+    )
+    PMTs = np.stack((PMT_x, PMT_y, PMT_z))
+    kdtree = KDTree(np.stack((PMT_x, PMT_y, PMT_z), axis=-1))
+
+    # 生成每个photon的坐标coordinates
+    photon_num_per_event = np.roll(PhotonTruth[
+        np.unique(PhotonTruth['EventID'], return_index=True)[1] - 1
+    ]['PhotonID'], -1) + 1
+    repeated_par_tr = np.repeat(ParticleTruth, photon_num_per_event)
+    coordinates = np.stack(
+        (repeated_par_tr['x']/1000, repeated_par_tr['y']/1000, repeated_par_tr['z']/1000)
+    )
+    
+    # 将问题分成10次循环，以防止内存爆炸
+    start_coordinate_index = 0
+    step = event_num // 10
+    for event_index in tqdm(range(0, step*11, step)):
+        photon = np.sum(photon_num_per_event[event_index:event_index+step])
+        if photon == 0:
+            break
+        end_coordinate_index = start_coordinate_index + photon
+
+        chunk_coordinates = coordinates[
+            :, start_coordinate_index:end_coordinate_index
+        ]
+
+        t = np.random.random(photon) * np.pi
+        p = np.random.random(photon) * 2 * np.pi
+        vxs = np.sin(t) * np.cos(p)
+        vys = np.sin(t) * np.sin(p)
+        vzs = np.cos(t)
+        try_velocities = np.stack((vxs, vys, vzs))
+        events = PhotonTruth[start_coordinate_index:end_coordinate_index]['EventID']
+        times = PhotonTruth[start_coordinate_index:end_coordinate_index]['GenTime']
+        can_reflect = np.ones(photon)
+        # try_velocities = np.tile(np.array([0, 1/2**0.5, 1/2**0.5]).reshape(3, 1), (1, photon))
+        transist(chunk_coordinates, try_velocities, times, events, can_reflect)
+        start_coordinate_index = end_coordinate_index
+ 
+    # 将dict转成structured array
+    names = ['EventID', 'ChannelID', 'PETime']
+    formats = ['<i4', '<i4', '<f8']
+    dtype = dict(names=names, formats=formats)
+    PETruth_structured = np.zeros(len(PETruth['EventID']), dtype=dtype)
+    PETruth_structured['EventID'] = PETruth['EventID']
+    PETruth_structured['ChannelID'] = PETruth['ChannelID']
+    PETruth_structured['PETime'] = PETruth['PETime']
+    return PETruth_structured
+
 
 def transist(coordinates, velocities, times, events, can_reflect):
     # 求解折射点
@@ -141,18 +196,3 @@ def write(events, PMT_indexs, times, PETruth):
         PETruth['ChannelID'].append(PMT_indexs[photon])
         PETruth['PETime'].append(times[photon])
 
-
-photon = 4000000
-coordinates = np.tile(np.array([0, 0, 5]).reshape(3, 1), (1, photon))
-t = np.random.random(photon) * np.pi
-p = np.random.random(photon) * 2 * np.pi
-vxs = np.sin(t) * np.cos(p)
-vys = np.sin(t) * np.sin(p)
-vzs = np.cos(t)
-try_velocities = np.stack((vxs, vys, vzs))
-events = np.ones(photon)
-times = np.zeros(photon)
-# try_velocities = np.tile(np.array([0, 1/2**0.5, 1/2**0.5]).reshape(3, 1), (1, photon))
-
-transist(coordinates, try_velocities, times, events, events)
-# print(PETruth)
