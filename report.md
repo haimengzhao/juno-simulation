@@ -345,7 +345,21 @@ def double_exp_model(t, ampli=1000, td=10, tr=5):
 
 
 
-### 4.2.2. 噪声函数
+#### 4.2.2. 噪声函数
+
+我们实现了两种不同的噪声函数： **正弦噪声** 和 **Gauss噪声** 。综合考虑了计算速度和模拟效果，我们最终选择了后者作为默认的设置。
+
+**正弦噪声** 采用周期无理的正弦函数的采样，保证了噪声函数在很大的区域内积分趋于零，通过调整周期参数，我们最终选取了周期 $T = \pi \times 10^{-30}$ 的正弦函数，而其振幅 $A_\text{sin}$ 由额外参数 $\text{ratio} = \frac{A_\text{sin}}{A}$ 控制。其图像大致如下（ $\text{ratio} = 0.01$ ）：
+
+<img src="./figs/sinnoise.png" alt="sinnoise" style="zoom:67%;" />
+
+**Gauss噪声** 由于正弦噪声受其周期性的制约，并不能很好地模拟随机的电子学噪声，故我们默认采用了利用 ```numpy.random.normal``` 按Gauss分布随机抽样的噪声。为了保证其长时间积分趋于零，我们取其均值为零，并用额外参数  $\text{ratio} = \frac{\sigma}{A}$ 控制其标准差 $\sigma$ 。其图像大致如下（ $\text{ratio} = 0.01$ ）：
+
+<img src="./figs/normalnoise.png" alt="normalnoise" style="zoom:67%;" />
+
+
+
+#### 4.2.3. 波形叠加
 
 
 
