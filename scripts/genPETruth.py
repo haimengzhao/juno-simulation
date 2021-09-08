@@ -78,7 +78,6 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list):
         events = PhotonTruth[start_coordinate_index:end_coordinate_index]['EventID']
         times = PhotonTruth[start_coordinate_index:end_coordinate_index]['GenTime']
         can_reflect = np.ones(photon)
-        # try_velocities = np.tile(np.array([0, 1/2**0.5, 1/2**0.5]).reshape(3, 1), (1, photon))
         transist(chunk_coordinates, try_velocities, times, events, can_reflect)
         start_coordinate_index = end_coordinate_index
  
@@ -131,11 +130,13 @@ def transist(coordinates, velocities, times, events, can_reflect):
 
     # 处理需要折射出去的光子
     if need_transmit.any():
-        hit_PMT(edge_points[:, need_transmit], new_velocities[:, need_transmit], new_times[need_transmit], events[need_transmit], can_reflect[need_transmit])
+        hit_PMT(edge_points[:, need_transmit], new_velocities[:, need_transmit], 
+                new_times[need_transmit], events[need_transmit], can_reflect[need_transmit])
 
     # 处理需要继续反射的光子
     if need_reflect.any():
-        transist(edge_points[:, need_reflect], reflected_velocities[:, need_reflect], new_times[need_reflect], events[need_reflect], np.zeros(need_reflect.sum()))
+        transist(edge_points[:, need_reflect], reflected_velocities[:, need_reflect], 
+                 new_times[need_reflect], events[need_reflect], np.zeros(need_reflect.sum()))
 
 
 
@@ -166,30 +167,17 @@ def find_hit_PMT(coordinates, velocities):
     inserted_points = np.linspace(inner_points, outer_points, insert_num)
     
     search_distances, search_indexs = kdtree.query(inserted_points, workers=-1, distance_upper_bound=r_PMT) # 返回搜索得到的最邻近点距离和最邻近点index
-    # print(search_indexs.shape)
-    allowed_distances = search_distances < np.inf  # (10, n)
-    # print(f'allowed_distances {allowed_distances.shape}')
-    possible_photon = np.where(np.any(allowed_distances, axis=0))[0]  # (<n)
-    # print(f'possible_photon {possible_photon.shape}')
-    first_point_index = np.argmax(allowed_distances[:, possible_photon], axis=0) #(<n)
-    # print(f'first_point_index {first_point_index.shape}, {first_point_index.mean()}')
-    # final_index = np.stack((first_point_index, possible_photon))
-    # print(f'final_index {final_index.shape} ')
+    allowed_distances = search_distances < np.inf
+    possible_photon = np.where(np.any(allowed_distances, axis=0))[0]
+    first_point_index = np.argmax(allowed_distances[:, possible_photon], axis=0)
 
     nearest_PMT_index = search_indexs[first_point_index, possible_photon]
-    print(f'ratio = {possible_photon.shape[0]/velocities.shape[1]}')
 
     return nearest_PMT_index, possible_photon
 
 
 def hit_PMT(coordinates, velocities, times, events, can_reflect, fromthis=False):
     nearest_PMT_index, possible_photon = find_hit_PMT(coordinates, velocities)
-    
-    # for i in np.unique(nearest_PMT_index):
-    #     photon_index = (nearest_PMT_index == i) & allow
-    #     if photon_index.shape[0]>0:
-    #         hit_this_PMT(coordinates[:, photon_index], velocities[:, photon_index], times[photon_index], 
-    #                      events[photon_index], can_reflect[photon_index], i)
 
     PMT2edge = coordinates[:, possible_photon] - PMTs[:, nearest_PMT_index]
     check = np.einsum('kn, kn->n', PMT2edge, velocities[:, possible_photon])**2 - np.einsum('kn, kn->n', PMT2edge, PMT2edge) + r_PMT**2
@@ -206,8 +194,7 @@ def hit_this_PMT(coordinates, velocities, times, events, can_reflect, PMT_index)
 
 
 def write(events, PMT_indexs, times, PETruth):
-    for photon in range(events.shape[0]):
-        PETruth['EventID'].append(events[photon])
-        PETruth['ChannelID'].append(PMT_indexs[photon])
-        PETruth['PETime'].append(times[photon])
+    PETruth['EventID'].extend(list(events))
+    PETruth['ChannelID'].extend(list(PMT_indexs))
+    PETruth['PETime'].extend(list(times))
 
