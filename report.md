@@ -18,6 +18,76 @@
 
 Lmh
 
+## 0. 文件结构与执行方式
+
+### 0.1. 文件结构
+
+本项目的文件结构如下：
+
+```
+|-- project-1-junosap-pmtsmasher
+    |-- geo.h5
+    |-- Makefile
+    |-- draw.py
+    |-- simulate.py
+    |-- scripts
+        |-- __init__.py
+        |-- drawProbe.py
+        |-- event.py
+        |-- genPETruth.py
+        |-- genWaveform.py
+        |-- getProbTime.py
+        |-- utils.py
+    |-- report.md
+    |-- docs
+    |-- figs
+```
+
+其中 ```geo.h5``` 为JUNO的PMT位置数据， ```Makefile``` 文件定义了文件处理Pipeline， ```simulate.py``` 和 ```draw.py``` 分别完成模拟与绘图的功能， ```scripts``` 文件夹下的各文件完成各个子功能， ```report.md``` 和```figs``` 文件夹为本实验报告及其所用到的样图， ```docs``` 文件夹下存储了本项目的要求。
+
+### 0.2. 执行方式
+
+在项目目录下用 ```shell``` 执行代码
+
+```shell
+make
+```
+
+可以完整地执行整个项目的流程，生成模拟数据文件 ```data.h5``` 并根据该数据绘制图像 ```figures.pdf``` 。
+
+执行代码
+
+```shell
+make data.h5
+make figures.pdf
+```
+
+可分别生成模拟数据 ```data.h5``` 和绘图 ```figures.pdf``` 。
+
+执行代码
+
+```shell
+make clean
+```
+
+可以清理生成的 ```data.h5``` 和 ```figures.pdf``` 文件。
+
+若要单独测试 ```simulate.py``` 和 ```draw.py``` ，可以执行
+
+```shell
+python3 simulate.py -n <num_of_events> -g geo.h5 -o <output_file> [-p <num_of_pmts>]
+python3 draw.py <data_file> -g geo.h5 -o <output_file>
+```
+
+例如：
+
+```shell
+python3 simulate.py -n 4000 -g geo.h5 -o data.h5
+python3 draw.py data.h5 -g geo.h5 -o figures.pdf
+```
+
+
+
 ## 1. 顶点模拟与光子生成
 
 Lmh
@@ -90,7 +160,7 @@ $$
 
 ### 3.2. 主要实现方式
 
-下面分别对这三个功能的具体实现方式和结果做一个介绍。
+下面分别对这三个功能的具体实现方式和结果做一个介绍。完整样图请见TODO。
 
 #### 3.2.1. 顶点体密度分布图
 
@@ -170,7 +240,7 @@ $$
 $$
 做出修正，最后利用 ```plt.pcolormesh``` 绘制出热力图即可。
 
-为了提升图像的分辨率，我们利用 ```scipy.interpolate.interp2d``` 进行了插值。同时为了更方便与同行比较，我们采取了对数着色，并选用了 **cmap**  *Jet* 。最终的样图如下图所示。
+为了提升图像的分辨率，我们利用 ```scipy.interpolate.interp2d``` 进行了插值。同时为了更方便与同行比较，我们采取了对数着色，并选用了 **cmap**  *Jet* 。最终的样图如下图所示。完整高清大图请见 [PDF: Data-driven Probe](./figs/probe_data.pdf) 。
 
 TODO: Data-driven的Probe图像
 
@@ -181,6 +251,8 @@ srh
 
 
 ## 4. 波形生成
+
+### 4.1. 思路
 
 
 
