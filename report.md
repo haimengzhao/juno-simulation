@@ -43,7 +43,7 @@ Lmh
     |-- figs
 ```
 
-其中 ```geo.h5``` 为JUNO的PMT位置数据， ```Makefile``` 文件定义了文件处理Pipeline， ```simulate.py``` 和 ```draw.py``` 分别完成模拟与绘图的功能， ```scripts``` 文件夹下的各文件完成各个子功能， ```report.md``` 和```figs``` 文件夹为本实验报告及其所用到的样图， ```docs``` 文件夹下存储了本项目的要求。
+其中 ```geo.h5``` 为JUNO的PMT位置数据， ```Makefile``` 文件定义了文件处理Pipeline， ```simulate.py``` 和 ```draw.py``` 分别完成模拟与绘图的功能， ```scripts``` 文件夹下的各文件完成各个子功能， ```report.md``` 和```figs``` 文件夹为本实验报告及其所用到的样图， ```docs``` 文件夹下存储了本项目的要求文档。
 
 ### 0.2. 执行方式
 
@@ -118,7 +118,7 @@ srh
 
 **绘图** 是相对较为独立的一项功能，且具有与其余代码交叉验证的功能，因此我们在项目初期建立了 *Git Branch* **draw** 完成了该功能的初步实现。在使用 *GhostHunter 2021* 的数据集简单检验了代码的正确性后，我们将其 *Merge* 入 **master** ，并应用于辅助验证及调试项目其余功能的实现情况。在顶点模拟与光学过程的功能完成后，我们利用完整生成的data.h5对绘图功能进行了进一步地调整和优化：重构了代码结构，调整了图表外观，利用插值增加了图标的分辨率，使其更易阅读。
 
-具体来说，绘图功能包括三个部分：
+具体来说，绘图功能在文件 ```draw.py``` 中实现，主要包括三个部分：
 
 1. **函数 ```draw_vertices_density```** : 绘制顶点体密度随半径分布的图像，用于验证所生成的顶点是否符合均匀体密度分布的要求；
 
@@ -162,7 +162,7 @@ TODO: PETime直方图
 
 Data-driven的Probe函数图像是绘图功能最困难的部分，主要是因为其涉及到了**大量数据的双键值索引**，即对 **PETruth** 表的 *EventID* 与 *ChannelID* 两个键值同时进行索引，并将各组PE数求和。实现这一功能最直接的方法是 ```pandas.DataFrame.groupby``` 但是其效率过低。
 
-为了解决这一难题，我们可以利用各PMT全同的假设，将 **PETruth** 表的 *EventID* 替换为对应的坐标 $(x, y, z)$ ，将 *ChannelID* 替换为对应的角坐标 $(\theta, \phi)$ ，然后计算得到它们的相对投影极坐标，最后根据这一投影极坐标调用 ```plt.hist2d``` 计算二维直方图。 **在几何上这等价于将所有的Event绕PMT所在轴旋转到同一个平面内，再将所有PMT绕垂直于该平面的过原点的轴旋转至同一方向，最后将对应位置的PE数求和。** 需要注意的是，这一算法依赖于数据的三个性质：
+为了解决这一难题，我们可以利用各PMT全同的假设，将 **PETruth** 表的 *EventID* 替换为对应的坐标 $(x, y, z)$ ，将 *ChannelID* 替换为对应的角坐标 $(\theta, \phi)$ ，然后计算得到它们的相对投影极坐标，最后根据这一投影极坐标调用 ```plt.hist2d``` 计算二维直方图。 **在几何上，这等价于将所有的Event绕PMT所在轴旋转到同一个平面内，再将所有PMT绕垂直于该平面的过原点的轴旋转至同一方向，最后将对应位置的PE数求和。** 需要注意的是，这一算法依赖于数据的三个性质：
 
 1. 各PMT可视作全同；
 2. 体系绕PMT旋转对称；
@@ -171,6 +171,12 @@ Data-driven的Probe函数图像是绘图功能最困难的部分，主要是因�
 预处理步骤的具体算法实现如下：
 
 ```python
+# divide events & channels
+Events, Events_i = np.unique(
+  self.petruth['EventID'], return_inverse=True)
+Channels, Channels_i = np.unique(
+  self.petruth['ChannelID'], return_inverse=True)
+
 print('Replacing Event & Channel with xyz & geo')
 
 # replace ChannelID with corresponding geo
@@ -210,6 +216,8 @@ $$
 $$
 做出修正，最后利用 ```plt.pcolormesh``` 绘制出热力图即可。
 
+**注意！** 调用 ``` np.meshgrid``` 和 ```plt.pcolormesh``` 进行绘图时，需要注意 $r$ 方向与 $\theta$ 方向在传入函数时的顺序，否则容易得不到正确的图像。由于修正公式中分母出现了 $r, \sin\theta$ ，在执行 ```plt.hist2d``` 计算直方图数据时，需要避开 $r=0, \theta = 0, \pi, 2\pi$ 附近的点。
+
 为了提升图像的分辨率，我们利用 ```scipy.interpolate.interp2d``` 进行了插值。同时为了更方便与同行比较，我们采取了对数着色，并选用了 **cmap**  *Jet* 。最终的样图如下图所示。完整高清大图请见 [PDF: Data-driven Probe](./figs/probe_data.pdf) 。
 
 TODO: Data-driven的Probe图像
@@ -222,7 +230,74 @@ srh
 
 ## 4. 波形生成
 
-### 4.1. 思路
+### 4.1. 思路 
+
+波形生成任务主要包括根据 **PETruth** 表中每个PE的 *PETime* 绘制出相应的波形，并对具有相同 *EventID* 相同 *ChannelID* 的波形进行叠加。具体说来，包括三个部分：
+
+1. 波形函数：根据 *PETime* 生成对应时间的波形；
+2. 噪声函数：模拟电子学噪声；
+3. 波形叠加：将 *EventID* 相同 *ChannelID* 相同的波形叠加；
+
+而在实现过程中，由于生成得到的总 **Waveform** 表非常大，保存成 ```data.h5``` 文件时大约要占据 **40G** 的空间（4000顶点），这也导致内存不足以支撑对整个 **Waveform** 表的一次性处理，因此还面临第四个难题：
+
+4. 性能优化：多进程处理与文件写入。
+
+### 4.2. 主要实现方式
+
+波形部分的功能在文件 ```scripts/genWaveform.py``` 中实现。
+
+#### 4.2.1. 波形函数
+
+对于模型函数，我们唯象地用一个双指数函数来建模，对于一个 $0$ 时刻激发的波形，有
+$$
+\text{Waveform}(t) = \cases{
+A\exp(-\frac{t}{\tau_d})\left(1-\exp(-\frac{t}{\tau_r})\right), t>0,\\
+0, t\le 0.
+}
+$$
+这个波形的大致图像为（取 $A=1000, \tau_d = 10\text{ns}, \tau_r = 5\text{ns}$ ）
+
+<img src="./figs/wftd10tr5.png" alt="wftd10tr5" style="zoom: 67%;" />
+
+通过公式分析以及尝试，我们发现参数 $\tau_d$ 主要决定了整体波形的宽度和衰减速率，如增大 $\tau_d$（取 $A=1000, \tau_d = 70\text{ns}, \tau_r = 5\text{ns}$ ）可以得到一个更宽、衰减更慢的波形：
+
+<img src="./figs/wftd70tr5.png" alt="wftd70tr5" style="zoom:67%;" />
+
+而参数 $\tau_r$ 则主要决定了峰值的位置，如相比上图增大 $\tau_r$ （取 $A=1000, \tau_d = 30\text{ns}, \tau_r = 30\text{ns}$ ）可以得到一个更偏右的峰值：
+
+<img src="./figs/wftd70tr30.png" alt="wftd70tr30" style="zoom:67%;" />
+
+在实验中我们选取了 $\tau_d=10\text{ns}, \tau_r=5\text{ns}$ ，函数的设计允许不同参数的选取，可以修改生成相应的数据。
+
+另外为了优化加速，我们采用了 ```numexpr``` 包进行加速，具体实现如下：
+
+```python
+def double_exp_model(t, ampli=1000, td=10, tr=5):
+    '''
+    双指数模型 f(t; ampli, td, tr)
+
+    输入: t, 时间;
+
+    参数:
+    ampli=1000, 波形高度;
+    td=10ns, 控制整体衰减时间;
+    tr=5ns, 控制峰值位置;
+
+    返回:
+    f(t) = ampli*exp(-t/td)*(1-exp(-t/tr)), t > 0
+           0,                               t <= 0
+    '''
+    return ne.evaluate(
+      '(t > 0) * ampli * exp(- t / td) * (1 - exp(- t / tr))')
+```
+
+在同时计算 $10^4$ 个波形时， ```numexpr``` 比纯 ```numpy``` 快6倍左右（使用 ```%timeit``` 测得 ```numexpr``` 用时 $(38.9 \pm 0.5)\text{ms}$ , ```numpy``` 用时 $(251 \pm 4)\text{ms}$  ）。
+
+
+
+### 4.2.2. 噪声函数
+
+
 
 
 
