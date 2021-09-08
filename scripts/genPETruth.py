@@ -42,7 +42,7 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list):
 
     event_num = ParticleTruth.shape[0]
     PMT_x, PMT_y, PMT_z = xyz_from_spher(
-        Ro, PMT_list['theta'], PMT_list['phi']
+        Ro, PMT_list['theta']/180*np.pi, PMT_list['phi']/180*np.pi
     )
     PMTs = np.stack((PMT_x, PMT_y, PMT_z))
     kdtree = KDTree(np.stack((PMT_x, PMT_y, PMT_z), axis=-1))
