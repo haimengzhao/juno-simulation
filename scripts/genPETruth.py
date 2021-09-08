@@ -36,7 +36,7 @@ PMT_x = Ro * np.sin(thetas*np.pi/180) * np.cos(phis*np.pi/180)
 PMT_y = Ro * np.sin(thetas*np.pi/180) * np.sin(phis*np.pi/180)
 PMT_z = Ro * np.cos(thetas*np.pi/180)
 PMTs = np.stack((PMT_x, PMT_y, PMT_z))
-kdtree = KDTree(np.stack((PMT_x, PMT_y, PMT_z), axis=-1), compact_nodes=True)
+kdtree = KDTree(np.stack((PMT_x, PMT_y, PMT_z), axis=-1))
 
 def transist(coordinates, velocities, times, events, can_reflect):
     # 求解折射点
@@ -76,11 +76,11 @@ def transist(coordinates, velocities, times, events, can_reflect):
 
     # 处理需要折射出去的光子
     if need_transmit.any():
-        hit_PMT(coordinates[:, need_transmit], new_velocities[:, need_transmit], new_times[need_transmit], events[need_transmit], can_reflect[need_transmit], PMTs)
+        hit_PMT(edge_points[:, need_transmit], new_velocities[:, need_transmit], new_times[need_transmit], events[need_transmit], can_reflect[need_transmit])
 
     # 处理需要继续反射的光子
     if need_reflect.any():
-        transist(coordinates[:, need_reflect], reflected_velocities[:, need_reflect], new_times[need_reflect], events[need_reflect], np.zeros(need_reflect.sum()))
+        transist(edge_points[:, need_reflect], reflected_velocities[:, need_reflect], new_times[need_reflect], events[need_reflect], np.zeros(need_reflect.sum()))
 
 
 
@@ -114,9 +114,9 @@ def find_hit_PMT(coordinates, velocities):
 
 def hit_PMT(coordinates, velocities, times, events, can_reflect, fromthis=False):
     nearest_PMT_index, allow = find_hit_PMT(coordinates, velocities)
-
+    
     for i in np.unique(nearest_PMT_index):
-        photon_index = np.where(allow[np.where(nearest_PMT_index == i)[0]])[0]
+        photon_index = (nearest_PMT_index == i) & allow
         if photon_index.shape[0]>0:
             hit_this_PMT(coordinates[:, photon_index], velocities[:, photon_index], times[photon_index], 
                          events[photon_index], can_reflect[photon_index], i)
@@ -140,8 +140,8 @@ def write(events, PMT_index, times, PETruth):
         PETruth['PETime'].append(times[photon])
 
 
-photon = 10000
-coordinates = np.tile(np.array([3, 6, 10]).reshape(3, 1), (1, photon))
+photon = 40000
+coordinates = np.tile(np.array([0, 0, 5]).reshape(3, 1), (1, photon))
 t = np.random.random(photon) * np.pi
 p = np.random.random(photon) * 2 * np.pi
 vxs = np.sin(t) * np.cos(p)
@@ -150,6 +150,7 @@ vzs = np.cos(t)
 try_velocities = np.stack((vxs, vys, vzs))
 events = np.ones(photon)
 times = np.zeros(photon)
+# try_velocities = np.tile(np.array([0, 1/2**0.5, 1/2**0.5]).reshape(3, 1), (1, photon))
 
 transist(coordinates, try_velocities, times, events, events)
 print(PETruth)
