@@ -152,23 +152,38 @@ def find_hit_PMT(coordinates, velocities):
     注意：光线是有方向的，如果光子将越离越远，那么将返回负数距离
     '''
     # 查找在球面上最邻近的PMT
-    cv = np.einsum('kn, kn->n', coordinates, velocities)
-    ts = -cv + np.sqrt(cv**2 - (np.einsum('kn, kn->n', coordinates, coordinates)-Ro**2))    #到达液闪边界的时间
-    edge_points = coordinates + ts * velocities
-    points = np.stack((edge_points[0, :], edge_points[1, :], edge_points[2, :]), axis=-1)
-    nearest_PMT_index = kdtree.query(points, workers=-1)[1]
+    cv1 = np.einsum('kn, kn->n', coordinates, velocities)
+    ts1 = -cv1 + np.sqrt(cv1**2 - (np.einsum('kn, kn->n', coordinates, coordinates)-Ro**2))    #到达液闪边界的时间
+    edge_points1 = coordinates + ts1 * velocities
+    outer_points = np.stack((edge_points1[0, :], edge_points1[1, :], edge_points1[2, :]), axis=-1)
 
-    # 计算光线与这个PMT的最短距离
-    new_ts = np.einsum('kn, kn->n', PMTs[:, nearest_PMT_index] - coordinates, velocities)
-    nearest_points = coordinates + new_ts * velocities
-    distances = np.linalg.norm(nearest_points - PMTs[:, nearest_PMT_index], axis=0) * np.sign(new_ts) 
-    allow = (distances < r_PMT) * (distances > 0)
+    cv2 = np.einsum('kn, kn->n', coordinates, velocities)
+    ts2 = -cv2 + np.sqrt(cv2**2 - (np.einsum('kn, kn->n', coordinates, coordinates)-(Ro-r_PMT)**2))    #到达液闪边界的时间
+    edge_points2 = coordinates + ts2 * velocities
+    inner_points = np.stack((edge_points2[0, :], edge_points2[1, :], edge_points2[2, :]), axis=-1)
 
-    return nearest_PMT_index, allow
+    insert_num = 5
+    inserted_points = np.linspace(inner_points, outer_points, insert_num)
+    
+    search_distances, search_indexs = kdtree.query(inserted_points, workers=-1, distance_upper_bound=r_PMT) # 返回搜索得到的最邻近点距离和最邻近点index
+    # print(search_indexs.shape)
+    allowed_distances = search_distances < np.inf  # (10, n)
+    # print(f'allowed_distances {allowed_distances.shape}')
+    possible_photon = np.where(np.any(allowed_distances, axis=0))[0]  # (<n)
+    # print(f'possible_photon {possible_photon.shape}')
+    first_point_index = np.argmax(allowed_distances[:, possible_photon], axis=0) #(<n)
+    # print(f'first_point_index {first_point_index.shape}, {first_point_index.mean()}')
+    # final_index = np.stack((first_point_index, possible_photon))
+    # print(f'final_index {final_index.shape} ')
+
+    nearest_PMT_index = search_indexs[first_point_index, possible_photon]
+    print(f'ratio = {possible_photon.shape[0]/velocities.shape[1]}')
+
+    return nearest_PMT_index, possible_photon
 
 
 def hit_PMT(coordinates, velocities, times, events, can_reflect, fromthis=False):
-    nearest_PMT_index, allow = find_hit_PMT(coordinates, velocities)
+    nearest_PMT_index, possible_photon = find_hit_PMT(coordinates, velocities)
     
     # for i in np.unique(nearest_PMT_index):
     #     photon_index = (nearest_PMT_index == i) & allow
@@ -176,13 +191,13 @@ def hit_PMT(coordinates, velocities, times, events, can_reflect, fromthis=False)
     #         hit_this_PMT(coordinates[:, photon_index], velocities[:, photon_index], times[photon_index], 
     #                      events[photon_index], can_reflect[photon_index], i)
 
-    PMT2edge = coordinates[:, allow] - PMTs[:, nearest_PMT_index[allow]].reshape(3, -1)
-    check = np.einsum('kn, kn->n', PMT2edge, velocities[:, allow])**2 - np.einsum('kn, kn->n', PMT2edge, PMT2edge) + r_PMT**2
-    ts = -np.einsum('kn, kn->n', PMT2edge, velocities[:, allow]) +\
+    PMT2edge = coordinates[:, possible_photon] - PMTs[:, nearest_PMT_index]
+    check = np.einsum('kn, kn->n', PMT2edge, velocities[:, possible_photon])**2 - np.einsum('kn, kn->n', PMT2edge, PMT2edge) + r_PMT**2
+    ts = -np.einsum('kn, kn->n', PMT2edge, velocities[:, possible_photon]) +\
           np.sqrt(check)
-    arrive_times = times[allow] + (n_water/c)*ts
+    arrive_times = times[possible_photon] + (n_water/c)*ts
 
-    write(events[allow], nearest_PMT_index[allow], arrive_times, PETruth)
+    write(events[possible_photon], nearest_PMT_index, arrive_times, PETruth)
 
     
 def hit_this_PMT(coordinates, velocities, times, events, can_reflect, PMT_index):
