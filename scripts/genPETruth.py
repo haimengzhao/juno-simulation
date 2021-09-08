@@ -115,32 +115,34 @@ def find_hit_PMT(coordinates, velocities):
 def hit_PMT(coordinates, velocities, times, events, can_reflect, fromthis=False):
     nearest_PMT_index, allow = find_hit_PMT(coordinates, velocities)
     
-    for i in np.unique(nearest_PMT_index):
-        photon_index = (nearest_PMT_index == i) & allow
-        if photon_index.shape[0]>0:
-            hit_this_PMT(coordinates[:, photon_index], velocities[:, photon_index], times[photon_index], 
-                         events[photon_index], can_reflect[photon_index], i)
+    # for i in np.unique(nearest_PMT_index):
+    #     photon_index = (nearest_PMT_index == i) & allow
+    #     if photon_index.shape[0]>0:
+    #         hit_this_PMT(coordinates[:, photon_index], velocities[:, photon_index], times[photon_index], 
+    #                      events[photon_index], can_reflect[photon_index], i)
+
+    PMT2edge = coordinates[:, allow] - PMTs[:, nearest_PMT_index[allow]].reshape(3, -1)
+    check = np.einsum('kn, kn->n', PMT2edge, velocities[:, allow])**2 - np.einsum('kn, kn->n', PMT2edge, PMT2edge) + r_PMT**2
+    ts = -np.einsum('kn, kn->n', PMT2edge, velocities[:, allow]) +\
+          np.sqrt(check)
+    arrive_times = times[allow] + (n_water/c)*ts
+
+    write(events[allow], nearest_PMT_index[allow], arrive_times, PETruth)
 
     
 def hit_this_PMT(coordinates, velocities, times, events, can_reflect, PMT_index):
-    PMT2edge = coordinates - PMTs[:, PMT_index].reshape(3, 1)
-    check = np.einsum('kn, kn->n', PMT2edge, velocities)**2 - np.einsum('kn, kn->n', PMT2edge, PMT2edge) + r_PMT**2
-    ts = -np.einsum('kn, kn->n', PMT2edge, velocities) +\
-          np.sqrt(check)
-    arrive_times = times + (n_water/c)*ts
-
-    write(events, PMT_index, arrive_times, PETruth)
+    pass
 
 
 
-def write(events, PMT_index, times, PETruth):
+def write(events, PMT_indexs, times, PETruth):
     for photon in range(events.shape[0]):
         PETruth['EventID'].append(events[photon])
-        PETruth['ChannelID'].append(PMT_index)
+        PETruth['ChannelID'].append(PMT_indexs[photon])
         PETruth['PETime'].append(times[photon])
 
 
-photon = 40000
+photon = 4000000
 coordinates = np.tile(np.array([0, 0, 5]).reshape(3, 1), (1, photon))
 t = np.random.random(photon) * np.pi
 p = np.random.random(photon) * 2 * np.pi
@@ -153,4 +155,4 @@ times = np.zeros(photon)
 # try_velocities = np.tile(np.array([0, 1/2**0.5, 1/2**0.5]).reshape(3, 1), (1, photon))
 
 transist(coordinates, try_velocities, times, events, events)
-print(PETruth)
+# print(PETruth)
