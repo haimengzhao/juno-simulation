@@ -58,7 +58,7 @@ def normal_noise(t, sigma=5):
     return np.random.normal(0, sigma, t.shape)
 
 
-def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal'):
+def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal', controlnoise=True):
     '''
     根据PETruth单进程生成波形(对于每个Event分步进行,以节省内存)
 
@@ -70,6 +70,7 @@ def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisety
     tr, 峰值位置;
     ratio, 噪声振幅/波形高度;
     noisetype, 噪声形式: 'normal' 正态分布噪声, 'sin' 正弦噪声; 
+    controlnoise, 是否对噪声控制变量: True则噪声event-wise相同, False则噪声event-wise随机, 无论如何channel-wise均随机.
 
     返回:
     Waveform (Structured Array) [EventID, ChannelID, Waveform]
@@ -84,13 +85,14 @@ def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisety
     # 预先制备时间采样和噪声以加速
     maxlength = np.max(Eindex[1:] - Eindex[:-1])
     t0 = np.tile(np.arange(0, 1000, 1), (maxlength, 1))
-    if noisetype == 'normal':
-        noise_0 = normal_noise(t0, ratio * ampli)
-    elif noisetype == 'sin':
-        noise_0 = sin_noise(t0, np.pi/1e30, ratio * ampli)
-    else:
-        print(f'{noisetype} noise not implemented, use normal noise instead!')
-        noise_0 = normal_noise(t0, ratio * ampli)
+    if controlnoise:
+        if noisetype == 'normal':
+            noise_0 = normal_noise(t0, ratio * ampli)
+        elif noisetype == 'sin':
+            noise_0 = sin_noise(t0, np.pi/1e30, ratio * ampli)
+        else:
+            print(f'{noisetype} noise not implemented, use normal noise instead!')
+            noise_0 = normal_noise(t0, ratio * ampli)
 
     init = True
 
@@ -101,6 +103,15 @@ def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisety
         # 采样
         length = Eindex[i+1] - Eindex[i]
         t = t0[:length]
+
+        if not controlnoise:
+            if noisetype == 'normal':
+                noise_0 = normal_noise(t, ratio * ampli)
+            elif noisetype == 'sin':
+                noise_0 = sin_noise(t, np.pi/1e30, ratio * ampli)
+            else:
+                print(f'{noisetype} noise not implemented, use normal noise instead!')
+                noise_0 = normal_noise(t, ratio * ampli)
 
         # 生成Waveform
         Waveform = noise_0[:length] + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
@@ -137,7 +148,7 @@ def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisety
 
 
 
-def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal'):
+def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal', controlnoise=True):
     '''
     根据PETruth多进程生成波形(对于每个Event分步进行,以节省内存)并保存
 
@@ -152,6 +163,7 @@ def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2,
     tr, 峰值位置;
     ratio, 噪声振幅/波形高度;
     noisetype, 噪声形式: 'normal' 正态分布噪声, 'sin' 正弦噪声; 
+    controlnoise, 是否对噪声控制变量: True则噪声event-wise相同, False则噪声event-wise随机, 无论如何channel-wise均随机.
 
     返回:
     无
@@ -166,13 +178,14 @@ def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2,
     # 预先制备时间采样和噪声以加速
     maxlength = np.max(Eindex[1:] - Eindex[:-1])
     t0 = np.tile(np.arange(0, 1000, 1), (maxlength, 1))
-    if noisetype == 'normal':
-        noise_0 = normal_noise(t0, ratio * ampli)
-    elif noisetype == 'sin':
-        noise_0 = sin_noise(t0, np.pi/1e30, ratio * ampli)
-    else:
-        print(f'{noisetype} noise not implemented, use normal noise instead!')
-        noise_0 = normal_noise(t0, ratio * ampli)
+    if controlnoise:
+        if noisetype == 'normal':
+            noise_0 = normal_noise(t0, ratio * ampli)
+        elif noisetype == 'sin':
+            noise_0 = sin_noise(t0, np.pi/1e30, ratio * ampli)
+        else:
+            print(f'{noisetype} noise not implemented, use normal noise instead!')
+            noise_0 = normal_noise(t0, ratio * ampli)
 
     # 分Event并行化生成Waveform
     # ref:
@@ -188,6 +201,15 @@ def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2,
             # 采样
             length = Eindex[i+1] - Eindex[i]
             t = t0[:length]
+
+            if not controlnoise:
+                if noisetype == 'normal':
+                    noise_0 = normal_noise(t, ratio * ampli)
+                elif noisetype == 'sin':
+                    noise_0 = sin_noise(t, np.pi/1e30, ratio * ampli)
+                else:
+                    print(f'{noisetype} noise not implemented, use normal noise instead!')
+                    noise_0 = normal_noise(t, ratio * ampli)
 
             # 生成Waveform
             Waveform = noise_0[:length] + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)

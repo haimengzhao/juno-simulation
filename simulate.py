@@ -70,9 +70,14 @@ if __name__ == "__main__":
     # with h5.File('data.h5', 'r') as inp:
     #     ParticleTruth = inp['ParticleTruth'][...]
     #     PETruth = inp['PETruth'][...]
+    #     try:
+    #         # 删除Waveform
+    #         del inp['Waveform']
+    #     except:
+    #         pass
 
     # 生成波形同时保存
-    get_waveform(args.opt, PETruth, ampli=1000, td=10, tr=5, ratio=0.01, noisetype='normal')
+    get_waveform(args.opt, PETruth, ampli=1000, td=10, tr=5, ratio=0.01, noisetype='normal', controlnoise=True)
 
     end_time = time.time()
     print('data.h5全部生成完成!')
