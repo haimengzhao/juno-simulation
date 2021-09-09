@@ -139,13 +139,7 @@ def transist(coordinates, velocities, times, events, can_reflect):
                  new_times[need_reflect], events[need_reflect], np.zeros(need_reflect.sum()))
 
 
-
-def go_inside(coordinates, velocities, times, events):
-    pass
-
-
-
-def find_hit_PMT(coordinates, velocities):
+def find_hit_PMT(coordinates, velocities, fromPMT=False):
     '''
     coordinates: (3, n)
     PMT_coordinates: (3, m)
@@ -158,38 +152,132 @@ def find_hit_PMT(coordinates, velocities):
     edge_points1 = coordinates + ts1 * velocities
     outer_points = np.stack((edge_points1[0, :], edge_points1[1, :], edge_points1[2, :]), axis=-1)
 
-    cv2 = np.einsum('kn, kn->n', coordinates, velocities)
-    ts2 = -cv2 + np.sqrt(cv2**2 - (np.einsum('kn, kn->n', coordinates, coordinates)-(Ro-r_PMT)**2))    #到达液闪边界的时间
-    edge_points2 = coordinates + ts2 * velocities
-    inner_points = np.stack((edge_points2[0, :], edge_points2[1, :], edge_points2[2, :]), axis=-1)
+    inserted_points = np.empty(1)
+    if fromPMT:
+        insert_num = 100
+        inner_points = np.stack((coordinates[0, :], coordinates[1, :], coordinates[2, :]), axis=-1)
+        inserted_points = np.linspace(inner_points, outer_points, insert_num)[1:, :, :]
+    else:
+        insert_num = 5
+        cv2 = np.einsum('kn, kn->n', coordinates, velocities)
+        ts2 = -cv2 + np.sqrt(cv2**2 - (np.einsum('kn, kn->n', coordinates, coordinates)-(Ro-r_PMT)**2))    #到达液闪边界的时间
+        edge_points2 = coordinates + ts2 * velocities
+        inner_points = np.stack((edge_points2[0, :], edge_points2[1, :], edge_points2[2, :]), axis=-1)
+        inserted_points = np.linspace(inner_points, outer_points, insert_num)
 
-    insert_num = 5
-    inserted_points = np.linspace(inner_points, outer_points, insert_num)
-    
     search_distances, search_indexs = kdtree.query(inserted_points, workers=-1, distance_upper_bound=r_PMT) # 返回搜索得到的最邻近点距离和最邻近点index
     allowed_distances = search_distances < np.inf
     possible_photon = np.where(np.any(allowed_distances, axis=0))[0]
     first_point_index = np.argmax(allowed_distances[:, possible_photon], axis=0)
 
     nearest_PMT_index = search_indexs[first_point_index, possible_photon]
+    del search_distances, search_indexs, allowed_distances, first_point_index
 
     return nearest_PMT_index, possible_photon
 
 
-def hit_PMT(coordinates, velocities, times, events, can_reflect, fromthis=False):
-    nearest_PMT_index, possible_photon = find_hit_PMT(coordinates, velocities)
+def hit_PMT(coordinates, velocities, times, events, can_reflect, fromPMT=False):
+    # 给出打到的PMT编号和能打中PMT光子的编号
+    nearest_PMT_index, possible_photon = find_hit_PMT(coordinates, velocities, fromPMT)
+    possible_coordinates = coordinates[:, possible_photon]
+    possible_velocities = velocities[:, possible_photon]
+    possible_times = times[possible_photon]
+    possible_events = events[possible_photon]
+    possible_reflect = can_reflect[possible_photon]
+    possible_PMT = PMTs[:, nearest_PMT_index]
+    print(f'ratio = {possible_photon.shape[0]/times.shape[0]}')
 
-    PMT2edge = coordinates[:, possible_photon] - PMTs[:, nearest_PMT_index]
-    check = np.einsum('kn, kn->n', PMT2edge, velocities[:, possible_photon])**2 - np.einsum('kn, kn->n', PMT2edge, PMT2edge) + r_PMT**2
-    ts = -np.einsum('kn, kn->n', PMT2edge, velocities[:, possible_photon]) +\
-          np.sqrt(check)
-    arrive_times = times[possible_photon] + (n_water/c)*ts
+    # 计算到达时间
+    PMT2edge = possible_coordinates - possible_PMT
+    ts = -np.einsum('kn, kn->n', PMT2edge, possible_velocities) -\
+          np.sqrt(np.einsum('kn, kn->n', PMT2edge, possible_velocities)**2 - np.einsum('kn, kn->n', PMT2edge, PMT2edge) + r_PMT**2)
+    arrive_times = possible_times + (n_water/c)*ts
 
-    write(events[possible_photon], nearest_PMT_index, arrive_times, PETruth)
-
+    # 计算到达点，以及入射角、出射角
+    edge_points = possible_coordinates + ts*possible_velocities
+    normal_vectors = (edge_points - possible_PMT) / r_PMT
+    norm = np.linalg.norm(normal_vectors, axis=0)
+    incidence_vectors = possible_velocities
+    vi = np.einsum('kn, kn->n', incidence_vectors, normal_vectors)
+    incidence_angles = np.arccos(-np.maximum(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1))
+    print(f'incidence_angles = {incidence_angles.mean()}, var = {incidence_angles.var()}')
+    emergence_angles = np.arcsin((n_water/n_glass) * np.sin(incidence_angles))
+    print(f'emergence_angles = {emergence_angles.mean()}, var = {emergence_angles.var()}')
     
-def hit_this_PMT(coordinates, velocities, times, events, can_reflect, PMT_index):
-    pass
+    # 计算反射系数->反射概率
+    Rs = ne.evaluate('(sin(emergence_angles - incidence_angles)/sin(emergence_angles + incidence_angles))**2')
+    Rp = ne.evaluate('(tan(emergence_angles - incidence_angles)/tan(emergence_angles + incidence_angles))**2')
+    R = (Rs+Rp)/2
+    print(f'R average = {R.mean()}')
+
+    probs = np.random.random(possible_photon.shape[0])
+    need_transmit = probs > R  # 水的折射率小于玻璃，不可能全反射
+    need_reflect = np.logical_not(need_transmit) * possible_reflect.astype(bool)
+
+    # 处理折射进入PMT的光子
+    if need_transmit.any():
+        print(f'need_transmit = {need_transmit.sum()}')
+        write(possible_events[need_transmit], nearest_PMT_index[need_transmit], arrive_times[need_transmit], PETruth)
+
+    # 处理需要继续反射的光子
+    if need_reflect.any():
+        print(f'need_reflect = {need_reflect.sum()}')
+        reflect_coordinates = edge_points[:, need_reflect]
+        reflect_velocities = incidence_vectors[:, need_reflect] -\
+                              2 * np.einsum('kn ,kn->n', incidence_vectors[:, need_reflect], normal_vectors[:, need_reflect]) * normal_vectors[:, need_reflect]
+        reflect_times = arrive_times[need_reflect]
+        reflect_events = possible_events[need_reflect]
+
+        # 计算反射光线到球心的距离，判断是否会射回液闪内
+        rt = -np.einsum('kn, kn->n', reflect_coordinates, reflect_velocities)
+        ds = np.linalg.norm(reflect_coordinates + rt*reflect_velocities, axis=0)
+        go_into_LS = ds < Ri
+        hit_PMT_again = np.logical_not(go_into_LS)
+
+        # 找出会射回液闪球内的
+        print(f'go_into_LS = {go_into_LS.sum()}')
+        go_inside(reflect_coordinates[:, go_into_LS], reflect_velocities[:, go_into_LS], 
+                  reflect_times[go_into_LS], reflect_events[go_into_LS])
+
+        # 找出继续在水中行进的
+        print(f'hit_PMT_again = {hit_PMT_again.sum()}')
+        hit_PMT(reflect_coordinates[:, hit_PMT_again], reflect_velocities[:, hit_PMT_again], 
+                reflect_times[hit_PMT_again], reflect_events[hit_PMT_again], np.zeros(hit_PMT_again.sum()),fromPMT=True)
+
+
+
+def go_inside(coordinates, velocities, times, events):
+    # 求解折射点
+    cv = np.einsum('kn, kn->n', coordinates, velocities)
+    ts = -cv - np.sqrt(cv**2 - np.einsum('kn, kn->n', coordinates, coordinates) + Ri**2)   #到达液闪边界的时间
+    edge_points = coordinates + ts * velocities
+    new_times = times + (n_water/c)*ts
+
+    # 计算入射角，出射角
+    normal_vectors = edge_points / Ri
+    incidence_vectors = velocities
+    vertical_of_incidence = np.maximum(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1)
+    incidence_angles = np.arccos(-vertical_of_incidence)
+
+    #计算折射光，反射光矢量与位置
+    reflected_velocities = velocities - 2 * vertical_of_incidence * normal_vectors
+
+    delta = ne.evaluate('1 - eta**2 * (1 - vertical_of_incidence**2)')
+    new_velocities = ne.evaluate('eta*incidence_vectors - (eta*vertical_of_incidence + sqrt(delta)) * normal_vectors') #取绝对值避免出错
+
+    # 计算折射系数
+    emergence_angles = np.arccos(np.minimum(np.einsum('kn, kn->n', new_velocities, -normal_vectors), 1))
+    Rs = ne.evaluate('(sin(emergence_angles - incidence_angles)/sin(emergence_angles + incidence_angles))**2')
+    Rp = ne.evaluate('(tan(emergence_angles - incidence_angles)/tan(emergence_angles + incidence_angles))**2')
+    R = (Rs+Rp)/2
+
+    # 选出需要折射和反射的光子
+    probs = np.random.random(times.shape[0])
+    need_transmit = probs > R
+
+    if need_transmit.any():
+        transist(edge_points[:, need_transmit], new_velocities[:, need_transmit], new_times[need_transmit], events[need_transmit], np.zeros(need_transmit.sum()))
+
 
 
 
