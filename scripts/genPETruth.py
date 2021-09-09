@@ -69,8 +69,8 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list):
             :, start_coordinate_index:end_coordinate_index
         ]
 
-        t = np.random.random(photon) * np.pi
-        p = np.random.random(photon) * 2 * np.pi
+        t = np.random.uniform(size=photon) * np.pi
+        p = np.random.uniform(size=photon) * 2 * np.pi
         vxs = np.sin(t) * np.cos(p)
         vys = np.sin(t) * np.sin(p)
         vzs = np.cos(t)
@@ -115,7 +115,8 @@ def transist(coordinates, velocities, times, events, can_reflect, must_transist=
     # 判断全反射
     max_incidence_angle = np.arcsin(n_water/n_LS)
     can_transmit = (incidence_angles < max_incidence_angle)
-    print(f'can transimit = {can_transmit.sum()}')
+    # print(f'all photon = {times.shape[0]}')
+    # print(f'can transimit = {can_transmit.sum()}')
 
     #计算折射光，反射光矢量与位置
     reflected_velocities = velocities - 2 * vertical_of_incidence * normal_vectors
@@ -130,9 +131,9 @@ def transist(coordinates, velocities, times, events, can_reflect, must_transist=
     R = (Rs+Rp)/2
 
     # 选出需要折射和反射的光子
-    probs = np.random.random(times.shape[0])
+    probs = np.random.uniform(size=times.shape[0])
     need_transmit = (probs>R) * can_transmit
-    need_reflect = np.logical_not(need_transmit) * can_reflect.astype(bool)
+    need_reflect = np.logical_not(need_transmit) * can_transmit * can_reflect.astype(bool)
 
     # 处理在液闪内已经反射一次的光子，必须全部折射出去（如果不是全反射）
     if must_transist:
@@ -165,7 +166,7 @@ def find_hit_PMT(coordinates, velocities, fromPMT=False):
 
     inserted_points = np.empty(1)
     if fromPMT:
-        insert_num = 100
+        insert_num = 1000
         inner_points = np.stack((coordinates[0, :], coordinates[1, :], coordinates[2, :]), axis=-1)
         inserted_points = np.linspace(inner_points, outer_points, insert_num)[1:, :, :]
     else:
@@ -182,7 +183,6 @@ def find_hit_PMT(coordinates, velocities, fromPMT=False):
     first_point_index = np.argmax(allowed_distances[:, possible_photon], axis=0)
 
     nearest_PMT_index = search_indexs[first_point_index, possible_photon]
-    del search_distances, search_indexs, allowed_distances, first_point_index
 
     return nearest_PMT_index, possible_photon
 
@@ -219,17 +219,17 @@ def hit_PMT(coordinates, velocities, times, events, can_reflect, fromPMT=False, 
     R = (Rs+Rp)/2
     # print(f'R average = {R.mean()}')
 
-    probs = np.random.random(possible_photon.shape[0])
+    probs = np.random.uniform(size=possible_photon.shape[0])
     need_transmit = probs > R  # 水的折射率小于玻璃，不可能全反射
     need_reflect = np.logical_not(need_transmit) * possible_reflect.astype(bool)
 
     if must_transist:
-        print(f'must_transmit = {arrive_times.shape[0]}')
+        # print(f'must_transmit = {arrive_times.shape[0]}')
         write(possible_events, nearest_PMT_index, arrive_times, PETruth)
     else:
     # 处理折射进入PMT的光子
         if need_transmit.any():
-            print(f'need_transmit = {need_transmit.sum()}')
+            # print(f'need_transmit = {need_transmit.sum()}')
             write(possible_events[need_transmit], nearest_PMT_index[need_transmit], arrive_times[need_transmit], PETruth)
 
         # 处理需要继续反射的光子
@@ -286,7 +286,7 @@ def go_inside(coordinates, velocities, times, events):
     R = (Rs+Rp)/2
 
     # 选出需要折射和反射的光子
-    probs = np.random.random(times.shape[0])
+    probs = np.random.uniform(size=times.shape[0])
     need_transmit = probs > R
 
     if need_transmit.any():
