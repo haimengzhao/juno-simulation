@@ -1,3 +1,9 @@
+'''
+event.py: 顶点与光子模拟
+主函数：generate_events
+生成球内均匀分布的顶点位置坐标，使用非齐次泊松分布采样光子时间
+'''
+
 import numpy as np
 from scipy.integrate import quad
 import multiprocessing
@@ -49,12 +55,11 @@ def generate_events(number_of_events):
              筛选事件，有lambda(t)/lambda*的可能性事件留下
     3. 转化为输出格式输出
     '''
-    
+
     # 初始化expectation
     print("初始化expectation...")
     step = 1/PRECISION
     expect_list = np.zeros(int(T_MAX/step) + 1)
-    
     with multiprocessing.Pool(8) as p:
         expect_list = np.array(
             list(tqdm(
@@ -76,7 +81,7 @@ def generate_events(number_of_events):
 
     # 初始化rng
     rng = np.random.default_rng()
-    
+
     print("正在生成event位置...")
     # 生成event的球坐标位置
     event_r = rng.power(3, size=number_of_events) * LS_RADIUS
@@ -128,7 +133,7 @@ def generate_events(number_of_events):
         photon_ids[start:(start + real_photon_count)] = np.arange(real_photon_count)
         gen_times[start:(start + real_photon_count)] = gen_time
         start = start + real_photon_count
-    
+
     # 生成PhotonTruth
     pho_tr_dtype = [
         ('EventID', '<i4'),
@@ -143,4 +148,3 @@ def generate_events(number_of_events):
 
     print("生成完成！")
     return Particle_Truth, Photon_Truth
-

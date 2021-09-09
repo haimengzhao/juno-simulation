@@ -24,42 +24,62 @@ EventID   事件编号      '<i4'
 ChannelID PMT 编号      '<i4'
 PETime    PE击中时间/ns '<f8'
 
-Waveform 表
+Waveform 表:
 EventID   事件编号 '<i4'
 ChannelID PMT编号  '<i4'
 Waveform  波形     '<i2', (1000,)
 '''
 
 import argparse
-import numpy as np
-import h5py as h5
 import time
+import h5py as h5
 from scripts.event import generate_events
 from scripts.genPETruth import get_PE_Truth
-from scripts.genWaveform import get_waveform_bychunk, get_waveform
+from scripts.genWaveform import get_waveform
 from scripts.utils import save_file
 
 if __name__ == "__main__":
-
     start_time = time.time()
 
-    rng = np.random.default_rng()
     # 处理命令行
     parser = argparse.ArgumentParser()
-    parser.add_argument("-n", dest="n", type=int, help="Number of events")
-    parser.add_argument("-g", "--geo", dest="geo", type=str, help="Geometry file")
-    parser.add_argument("-o", "--output", dest="opt", type=str, help="Output file")
-    parser.add_argument("-p", "--pmt", dest="pmt_count", type=int, help="Number of PMTs, default is 17612", default=17612)
+    parser.add_argument(
+        "-n",
+        dest="n",
+        type=int,
+        help="Number of events"
+    )
+    parser.add_argument(
+        "-g",
+        "--geo",
+        dest="geo",
+        type=str,
+        help="Geometry file"
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        dest="opt",
+        type=str,
+        help="Output file"
+    )
+    parser.add_argument(
+        "-p",
+        "--pmt",
+        dest="pmt_count",
+        type=int,
+        help="Number of PMTs, default is 17612",
+        default=17612
+    )
     args = parser.parse_args()
 
     # 读入几何文件
     with h5.File(args.geo, "r") as geo:
-        # 只要求模拟17612个PMT
         PMT_list = geo['Geometry'][:args.pmt_count]
 
     # 生成顶点
     ParticleTruth, PhotonTruth = generate_events(args.n)
-    
+
     # 光学过程
     PETruth = get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list)
 
@@ -77,9 +97,17 @@ if __name__ == "__main__":
     #         pass
 
     # 生成波形同时保存
-    get_waveform(args.opt, PETruth, ampli=1000, td=10, tr=5, ratio=0.01, noisetype='normal', controlnoise=True)
+    get_waveform(
+        args.opt,
+        PETruth,
+        ampli=1000,
+        td=10,
+        tr=5,
+        ratio=0.01,
+        noisetype='normal',
+        controlnoise=True
+    )
 
     end_time = time.time()
     print('data.h5全部生成完成!')
     print('总共用时: %.2fs' % (end_time-start_time))
-

@@ -19,7 +19,7 @@ eta = n_LS / n_water
 Ri = 17.71
 Ro = 19.5
 r_PMT = 0.508/2
-c = 0.3
+c = 3e8
 
 PETruth = {}
 PETruth['EventID'] = []
@@ -39,6 +39,8 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list):
     PETruth['EventID'] = []
     PETruth['ChannelID'] = []
     PETruth['PETime'] = []
+
+    rng = np.random.default_rng()
 
     event_num = ParticleTruth.shape[0]
     PMT_x, PMT_y, PMT_z = xyz_from_spher(
@@ -69,8 +71,8 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list):
             :, start_coordinate_index:end_coordinate_index
         ]
 
-        t = np.random.random(photon) * np.pi
-        p = np.random.random(photon) * 2 * np.pi
+        t = rng.random(photon) * np.pi
+        p = rng.random(photon) * 2 * np.pi
         vxs = np.sin(t) * np.cos(p)
         vys = np.sin(t) * np.sin(p)
         vzs = np.cos(t)
@@ -130,7 +132,8 @@ def transist(coordinates, velocities, times, events, can_reflect, must_transist=
     R = (Rs+Rp)/2
 
     # 选出需要折射和反射的光子
-    probs = np.random.random(times.shape[0])
+    rng = np.random.default_rng()
+    probs = rng.random(times.shape[0])
     need_transmit = (probs>R) * can_transmit
     need_reflect = np.logical_not(need_transmit) * can_reflect.astype(bool)
 
@@ -142,7 +145,7 @@ def transist(coordinates, velocities, times, events, can_reflect, must_transist=
         # 处理需要折射出去的光子
         if need_transmit.any():
             hit_PMT(edge_points[:, need_transmit], new_velocities[:, need_transmit], 
-                    new_times[need_transmit], events[need_transmit], can_reflect[need_transmit])
+                    new_times[need_transmit], events[need_transmit], can_reflect[need_transmit], must_transist=True)
 
         # 处理需要继续反射的光子
         if need_reflect.any():
@@ -218,8 +221,9 @@ def hit_PMT(coordinates, velocities, times, events, can_reflect, fromPMT=False, 
     Rp = ne.evaluate('(tan(emergence_angles - incidence_angles)/tan(emergence_angles + incidence_angles))**2')
     R = (Rs+Rp)/2
     # print(f'R average = {R.mean()}')
-
-    probs = np.random.random(possible_photon.shape[0])
+    
+    rng = np.random.default_rng()
+    probs = rng.random(possible_photon.shape[0])
     need_transmit = probs > R  # 水的折射率小于玻璃，不可能全反射
     need_reflect = np.logical_not(need_transmit) * possible_reflect.astype(bool)
 
@@ -286,7 +290,8 @@ def go_inside(coordinates, velocities, times, events):
     R = (Rs+Rp)/2
 
     # 选出需要折射和反射的光子
-    probs = np.random.random(times.shape[0])
+    rng = np.random.default_rng()
+    probs = rng.random(times.shape[0])
     need_transmit = probs > R
 
     if need_transmit.any():
