@@ -202,7 +202,7 @@ $$
 
 光电子接收时间直方图的绘制更为简单：只需读入 **PETruth** 表，并根据接收时间 *PETime* 利用函数 ```plt.hist``` 绘制直方图即可。图的纵坐标为相应时间段内接收到的光子个数，横坐标接收时间的单位设置为 $\text{ns}$ ，最终产生的样图如下图所示。
 
-TODO: PETime直方图
+<img src="./figs/petime.png" alt="petime" style="zoom: 25%;" />
 
 
 
@@ -268,7 +268,9 @@ $$
 
 为了提升图像的分辨率，我们利用 ```scipy.interpolate.interp2d``` 进行了插值。同时为了更方便与同行比较，我们采取了对数着色，并选用了 **cmap**  *Jet* 。最终的样图如下图所示。完整高清大图请见 [PDF: Data-driven Probe](./figs/probe_data.pdf) 。
 
-TODO: Data-driven的Probe图像
+<img src="./figs/probe_data.png" alt="probe_data" style="zoom:25%;" />
+
+注意到，该图左右上角位置Probe很小，代表着 **全反射** 区域；同时Probe函数随着距离PMT的位置增长而衰减（ $0\degree$  附近的红黄青渐变区域），对应着光子传播过程中 **平方反比** 的衰减；而图像下半部分的蓝色亮线，则代表着 **一次反射与折射** 等光学过程。另外，我们注意到图像呈现出关于半径的圆环图样，同时接近原点处出现空白，这是由于生成的Event数量较少（4000个），在随机涨落的影响下，Event数量较少的半径处会变暗，这也是Data-driven的Probe函数热力图的缺点，它受制于数据的随机性，而下一节所述的Sim-driven的Probe函数热力图则可以避免这一现象。
 
 #### 3.3.4. Sim-driven的Probe函数热力图
 通过模拟顶点均匀发出光子来计算该点光子能到达PMT的概率。这部分的光学设计与前面的光学设计不同的是：

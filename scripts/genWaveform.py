@@ -60,7 +60,7 @@ def normal_noise(t, sigma=5):
 
 def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal', controlnoise=True):
     '''
-    根据PETruth单进程生成波形(对于每个Event分步进行,以节省内存)
+    根据PETruth单进程生成波形(对于每个Event分步进行,以节省内存)并保存
 
     输入: PETruth (Structured Array) [EventID, ChannelID, PETime]
 
@@ -73,7 +73,7 @@ def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisety
     controlnoise, 是否对噪声控制变量: True则噪声event-wise相同, False则噪声event-wise随机, 无论如何channel-wise均随机.
 
     返回:
-    Waveform (Structured Array) [EventID, ChannelID, Waveform]
+    无
     '''
     
     # Event切割

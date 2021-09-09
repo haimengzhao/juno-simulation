@@ -87,6 +87,7 @@ class Drawer:
         ax.set_xticklabels(['%.0f' % i for i in np.linspace(0, maxtime, 11)])
 
         ax.set_ylabel(r'Number of PE Hit')
+        ax.ticklabel_format(axis="y", style="sci", scilimits=(0,0))
 
         ax.hist(time, bins=NumBins_PETime, density=False)
 
