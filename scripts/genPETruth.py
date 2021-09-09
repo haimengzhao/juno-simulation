@@ -97,7 +97,7 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list):
     return PETruth_structured
 
 
-def transist(coordinates, velocities, times, events, can_reflect):
+def transist(coordinates, velocities, times, events, can_reflect, must_transist=False):
     # 求解折射点
     cv = np.einsum('kn, kn->n', coordinates, velocities)
     ts = -cv + np.sqrt(cv**2 - np.einsum('kn, kn->n', coordinates, coordinates) + Ri**2)   #到达液闪边界的时间
@@ -115,6 +115,7 @@ def transist(coordinates, velocities, times, events, can_reflect):
     # 判断全反射
     max_incidence_angle = np.arcsin(n_water/n_LS)
     can_transmit = (incidence_angles < max_incidence_angle)
+    print(f'can transimit = {can_transmit.sum()}')
 
     #计算折射光，反射光矢量与位置
     reflected_velocities = velocities - 2 * vertical_of_incidence * normal_vectors
@@ -133,15 +134,20 @@ def transist(coordinates, velocities, times, events, can_reflect):
     need_transmit = (probs>R) * can_transmit
     need_reflect = np.logical_not(need_transmit) * can_reflect.astype(bool)
 
-    # 处理需要折射出去的光子
-    if need_transmit.any():
-        hit_PMT(edge_points[:, need_transmit], new_velocities[:, need_transmit], 
-                new_times[need_transmit], events[need_transmit], can_reflect[need_transmit])
+    # 处理在液闪内已经反射一次的光子，必须全部折射出去（如果不是全反射）
+    if must_transist:
+        hit_PMT(edge_points[:, can_transmit], new_velocities[:, can_transmit], 
+                new_times[can_transmit], events[can_transmit], np.zeros(can_transmit.sum()), must_transist=True)
+    else:
+        # 处理需要折射出去的光子
+        if need_transmit.any():
+            hit_PMT(edge_points[:, need_transmit], new_velocities[:, need_transmit], 
+                    new_times[need_transmit], events[need_transmit], can_reflect[need_transmit])
 
-    # 处理需要继续反射的光子
-    if need_reflect.any():
-        transist(edge_points[:, need_reflect], reflected_velocities[:, need_reflect], 
-                 new_times[need_reflect], events[need_reflect], np.zeros(need_reflect.sum()))
+        # 处理需要继续反射的光子
+        if need_reflect.any():
+            transist(edge_points[:, need_reflect], reflected_velocities[:, need_reflect], 
+                    new_times[need_reflect], events[need_reflect], np.zeros(need_reflect.sum()), must_transist=True)
 
 
 def find_hit_PMT(coordinates, velocities, fromPMT=False):
@@ -153,7 +159,7 @@ def find_hit_PMT(coordinates, velocities, fromPMT=False):
     '''
     # 查找在球面上最邻近的PMT
     cv1 = np.einsum('kn, kn->n', coordinates, velocities)
-    ts1 = -cv1 + np.sqrt(cv1**2 - (np.einsum('kn, kn->n', coordinates, coordinates)-Ro**2))    #到达液闪边界的时间
+    ts1 = -cv1 + np.sqrt(cv1**2 - (np.einsum('kn, kn->n', coordinates, coordinates)-(Ro+r_PMT)**2))    #到达液闪边界的时间
     edge_points1 = coordinates + ts1 * velocities
     outer_points = np.stack((edge_points1[0, :], edge_points1[1, :], edge_points1[2, :]), axis=-1)
 
@@ -163,7 +169,7 @@ def find_hit_PMT(coordinates, velocities, fromPMT=False):
         inner_points = np.stack((coordinates[0, :], coordinates[1, :], coordinates[2, :]), axis=-1)
         inserted_points = np.linspace(inner_points, outer_points, insert_num)[1:, :, :]
     else:
-        insert_num = 5
+        insert_num = 10
         cv2 = np.einsum('kn, kn->n', coordinates, velocities)
         ts2 = -cv2 + np.sqrt(cv2**2 - (np.einsum('kn, kn->n', coordinates, coordinates)-(Ro-r_PMT)**2))    #到达液闪边界的时间
         edge_points2 = coordinates + ts2 * velocities
@@ -181,7 +187,7 @@ def find_hit_PMT(coordinates, velocities, fromPMT=False):
     return nearest_PMT_index, possible_photon
 
 
-def hit_PMT(coordinates, velocities, times, events, can_reflect, fromPMT=False):
+def hit_PMT(coordinates, velocities, times, events, can_reflect, fromPMT=False, must_transist=False):
     # 给出打到的PMT编号和能打中PMT光子的编号
     nearest_PMT_index, possible_photon = find_hit_PMT(coordinates, velocities, fromPMT)
     possible_coordinates = coordinates[:, possible_photon]
@@ -190,7 +196,7 @@ def hit_PMT(coordinates, velocities, times, events, can_reflect, fromPMT=False):
     possible_events = events[possible_photon]
     possible_reflect = can_reflect[possible_photon]
     possible_PMT = PMTs[:, nearest_PMT_index]
-    print(f'ratio = {possible_photon.shape[0]/times.shape[0]}')
+    # print(f'ratio = {possible_photon.shape[0]/times.shape[0]}')
 
     # 计算到达时间
     PMT2edge = possible_coordinates - possible_PMT
@@ -201,53 +207,56 @@ def hit_PMT(coordinates, velocities, times, events, can_reflect, fromPMT=False):
     # 计算到达点，以及入射角、出射角
     edge_points = possible_coordinates + ts*possible_velocities
     normal_vectors = (edge_points - possible_PMT) / r_PMT
-    norm = np.linalg.norm(normal_vectors, axis=0)
     incidence_vectors = possible_velocities
-    vi = np.einsum('kn, kn->n', incidence_vectors, normal_vectors)
     incidence_angles = np.arccos(-np.maximum(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1))
-    print(f'incidence_angles = {incidence_angles.mean()}, var = {incidence_angles.var()}')
+    # print(f'incidence_angles = {incidence_angles.mean()}, var = {incidence_angles.var()}')
     emergence_angles = np.arcsin((n_water/n_glass) * np.sin(incidence_angles))
-    print(f'emergence_angles = {emergence_angles.mean()}, var = {emergence_angles.var()}')
+    # print(f'emergence_angles = {emergence_angles.mean()}, var = {emergence_angles.var()}')
     
     # 计算反射系数->反射概率
     Rs = ne.evaluate('(sin(emergence_angles - incidence_angles)/sin(emergence_angles + incidence_angles))**2')
     Rp = ne.evaluate('(tan(emergence_angles - incidence_angles)/tan(emergence_angles + incidence_angles))**2')
     R = (Rs+Rp)/2
-    print(f'R average = {R.mean()}')
+    # print(f'R average = {R.mean()}')
 
     probs = np.random.random(possible_photon.shape[0])
     need_transmit = probs > R  # 水的折射率小于玻璃，不可能全反射
     need_reflect = np.logical_not(need_transmit) * possible_reflect.astype(bool)
 
+    if must_transist:
+        print(f'must_transmit = {arrive_times.shape[0]}')
+        write(possible_events, nearest_PMT_index, arrive_times, PETruth)
+    else:
     # 处理折射进入PMT的光子
-    if need_transmit.any():
-        print(f'need_transmit = {need_transmit.sum()}')
-        write(possible_events[need_transmit], nearest_PMT_index[need_transmit], arrive_times[need_transmit], PETruth)
+        if need_transmit.any():
+            print(f'need_transmit = {need_transmit.sum()}')
+            write(possible_events[need_transmit], nearest_PMT_index[need_transmit], arrive_times[need_transmit], PETruth)
 
-    # 处理需要继续反射的光子
-    if need_reflect.any():
-        print(f'need_reflect = {need_reflect.sum()}')
-        reflect_coordinates = edge_points[:, need_reflect]
-        reflect_velocities = incidence_vectors[:, need_reflect] -\
-                              2 * np.einsum('kn ,kn->n', incidence_vectors[:, need_reflect], normal_vectors[:, need_reflect]) * normal_vectors[:, need_reflect]
-        reflect_times = arrive_times[need_reflect]
-        reflect_events = possible_events[need_reflect]
+        # 处理需要继续反射的光子
+        if need_reflect.any():
+            # print(f'need_reflect = {need_reflect.sum()}')
+            reflect_coordinates = edge_points[:, need_reflect]
+            reflect_velocities = incidence_vectors[:, need_reflect] -\
+                                 2 * np.einsum('kn ,kn->n', incidence_vectors[:, need_reflect], normal_vectors[:, need_reflect]) *\
+                                 normal_vectors[:, need_reflect]
+            reflect_times = arrive_times[need_reflect]
+            reflect_events = possible_events[need_reflect]
 
-        # 计算反射光线到球心的距离，判断是否会射回液闪内
-        rt = -np.einsum('kn, kn->n', reflect_coordinates, reflect_velocities)
-        ds = np.linalg.norm(reflect_coordinates + rt*reflect_velocities, axis=0)
-        go_into_LS = ds < Ri
-        hit_PMT_again = np.logical_not(go_into_LS)
+            # 计算反射光线到球心的距离，判断是否会射回液闪内
+            rt = -np.einsum('kn, kn->n', reflect_coordinates, reflect_velocities)
+            ds = np.linalg.norm(reflect_coordinates + rt*reflect_velocities, axis=0)
+            go_into_LS = ds < Ri
+            hit_PMT_again = np.logical_not(go_into_LS)
 
-        # 找出会射回液闪球内的
-        print(f'go_into_LS = {go_into_LS.sum()}')
-        go_inside(reflect_coordinates[:, go_into_LS], reflect_velocities[:, go_into_LS], 
-                  reflect_times[go_into_LS], reflect_events[go_into_LS])
+            # 找出会射回液闪球内的
+            # print(f'go_into_LS = {go_into_LS.sum()}')
+            go_inside(reflect_coordinates[:, go_into_LS], reflect_velocities[:, go_into_LS], 
+                    reflect_times[go_into_LS], reflect_events[go_into_LS])
 
-        # 找出继续在水中行进的
-        print(f'hit_PMT_again = {hit_PMT_again.sum()}')
-        hit_PMT(reflect_coordinates[:, hit_PMT_again], reflect_velocities[:, hit_PMT_again], 
-                reflect_times[hit_PMT_again], reflect_events[hit_PMT_again], np.zeros(hit_PMT_again.sum()),fromPMT=True)
+            # 找出继续在水中行进的
+            # print(f'hit_PMT_again = {hit_PMT_again.sum()}')
+            hit_PMT(reflect_coordinates[:, hit_PMT_again], reflect_velocities[:, hit_PMT_again], 
+                    reflect_times[hit_PMT_again], reflect_events[hit_PMT_again], np.zeros(hit_PMT_again.sum()),fromPMT=True)
 
 
 
