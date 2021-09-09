@@ -85,10 +85,15 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list):
     names = ['EventID', 'ChannelID', 'PETime']
     formats = ['<i4', '<i4', '<f8']
     dtype = dict(names=names, formats=formats)
-    PETruth_structured = np.zeros(len(PETruth['EventID']), dtype=dtype)
+    PETruth_structured = np.empty(len(PETruth['EventID']), dtype=dtype)
     PETruth_structured['EventID'] = PETruth['EventID']
     PETruth_structured['ChannelID'] = PETruth['ChannelID']
     PETruth_structured['PETime'] = PETruth['PETime']
+
+    # 按event排序
+    order = np.argsort(PETruth_structured['EventID'])
+    PETruth_structured = PETruth_structured[order]
+
     return PETruth_structured
 
 
