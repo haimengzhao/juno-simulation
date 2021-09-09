@@ -1,15 +1,15 @@
 '''
-simulate.py: 生成模拟数据，保存在hdf5文件中
+simulate.py: 生成模拟数据, 保存在hdf5文件中
 
-必须的参数：
+必须的参数:
 -n: Number of events
 -g, --geo: Geometry file
 -o, --output: Output file
 
-可选的参数：
+可选的参数:
 -p --pmt: Number of PMTs, default is 17612
 
-输出格式：
+输出格式:
 文件名opt，格式为hdf5
 
 ParticleTruth 表:
@@ -24,7 +24,7 @@ EventID   事件编号      '<i4'
 ChannelID PMT 编号      '<i4'
 PETime    PE击中时间/ns '<f8'
 
-Waveform 表
+Waveform 表:
 EventID   事件编号 '<i4'
 ChannelID PMT编号  '<i4'
 Waveform  波形     '<i2', (1000,)
