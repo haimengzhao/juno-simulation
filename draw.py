@@ -1,3 +1,18 @@
+'''
+draw.py: 根据模拟数据绘图, 保存在pdf文件中
+
+参数:
+ipt: Input simulation data
+-g, --geo: Geometry file
+-o, --output: Output file
+
+输出格式: 
+pdf, 包含三张图片, 一页一张, 分别是:
+顶点体密度随半径分布图;
+PETime直方图;
+Probe函数热力图.
+'''
+
 import h5py as h5
 import numpy as np
 import matplotlib.pyplot as plt
