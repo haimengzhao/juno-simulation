@@ -58,18 +58,18 @@ if __name__ == "__main__":
         PMT_list = geo['Geometry'][:args.pmt_count]
 
     # 生成顶点
-    # ParticleTruth, PhotonTruth = generate_events(args.n)
+    ParticleTruth, PhotonTruth = generate_events(args.n)
     
-    # # 光学过程
-    # PETruth = get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list)
+    # 光学过程
+    PETruth = get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list)
 
-    # # 保存ParticleTruth和PETruth
-    # save_file(args.opt, ParticleTruth, PETruth)
+    # 保存ParticleTruth和PETruth
+    save_file(args.opt, ParticleTruth, PETruth)
 
     # 中断可直接读取
-    with h5.File('data.h5', 'r') as inp:
-        ParticleTruth = inp['ParticleTruth'][...]
-        PETruth = inp['PETruth'][...]
+    # with h5.File('data.h5', 'r') as inp:
+    #     ParticleTruth = inp['ParticleTruth'][...]
+    #     PETruth = inp['PETruth'][...]
 
     # 生成波形同时保存
     get_waveform(args.opt, PETruth, ampli=1000, td=10, tr=5, ratio=0.01, noisetype='normal')
