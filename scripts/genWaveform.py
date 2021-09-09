@@ -1,13 +1,14 @@
+'''
+genWaveform: 电子学任务，根据PETruth生成波形
+
+主要接口：get_waveform
+'''
+import multiprocessing as mp
 import numpy as np
 from tqdm import tqdm
-import multiprocessing as mp
 import h5py
 import numexpr as ne
 
-'''
-电子学任务
-根据PETruth生成波形
-'''
 
 def double_exp_model(t, ampli=1000, td=10, tr=5):
     '''
@@ -58,7 +59,8 @@ def normal_noise(t, sigma=5):
     return np.random.normal(0, sigma, t.shape)
 
 
-def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal', controlnoise=True):
+def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5,
+                 ratio=1e-2, noisetype='normal', controlnoise=True):
     '''
     根据PETruth单进程生成波形(对于每个Event分步进行,以节省内存)并保存
 
@@ -69,13 +71,15 @@ def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisety
     td, 整体衰减时间;
     tr, 峰值位置;
     ratio, 噪声振幅/波形高度;
-    noisetype, 噪声形式: 'normal' 正态分布噪声, 'sin' 正弦噪声; 
-    controlnoise, 是否对噪声控制变量: True则噪声event-wise相同, False则噪声event-wise随机, 无论如何channel-wise均随机.
+    noisetype, 噪声形式: 'normal' 正态分布噪声, 'sin' 正弦噪声;
+    controlnoise, 是否对噪声控制变量: True则噪声event-wise相同,
+                                      False则噪声event-wise随机,
+                  无论如何channel-wise均随机.
 
     返回:
     无
     '''
-    
+    print("正在生成波形...")
     # Event切割
     EventID = PETruth['EventID']
 
@@ -96,7 +100,7 @@ def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisety
 
     init = True
 
-    f =  h5py.File(filename, "a")
+    f = h5py.File(filename, "a")
 
     # 读取PETruth
     for i in tqdm(range(len(Eindex)-1)):
@@ -114,27 +118,48 @@ def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisety
                 noise_0 = normal_noise(t, ratio * ampli)
 
         # 生成Waveform
-        Waveform = noise_0[:length] + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+        Waveform = noise_0[:length] + double_exp_model(
+            t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1),
+            ampli,
+            td,
+            tr
+        )
 
         # numpy groupby
         # ref:
         # https://stackoverflow.com/questions/58546957/sum-of-rows-based-on-index-with-numpy
-        Channels, idx = np.unique(PETruth[Eindex[i]:Eindex[i+1]]['ChannelID'], return_inverse=True)
+        Channels, idx = np.unique(
+            PETruth[Eindex[i]:Eindex[i+1]]['ChannelID'],
+            return_inverse=True
+        )
         order = np.argsort(idx)
         breaks = np.flatnonzero(np.concatenate(([1], np.diff(idx[order]))))
         # 同Channel波形相加
         result = np.add.reduceat(Waveform[order], breaks, axis=0)
 
         # 拼接WF表
-        WF = np.empty(len(Channels), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+        WF = np.empty(
+            len(Channels),
+            dtype=[('EventID', '<i4'),
+                   ('ChannelID', '<i4'),
+                   ('Waveform', '<i2', (1000,))]
+        )
         WF['EventID'] = np.ones(len(Channels))*Events[i]
         WF['ChannelID'] = Channels
         WF['Waveform'] = result
 
         if init:
             # 初始化Waveform表
-            wfds = f.create_dataset('Waveform', (len(WF),), maxshape=(None,), 
-                    dtype=np.dtype([('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))]))
+            wfds = f.create_dataset(
+                'Waveform',
+                (len(WF),),
+                maxshape=(None,),
+                dtype=np.dtype(
+                    [('EventID', '<i4'),
+                     ('ChannelID', '<i4'),
+                     ('Waveform', '<i2', (1000,))]
+                )
+            )
             init = False
         else:
             # 扩大Waveform表
@@ -148,11 +173,12 @@ def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisety
 
 
 
-def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisetype='normal', controlnoise=True):
+def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5,
+                         ratio=1e-2, noisetype='normal', controlnoise=True):
     '''
     根据PETruth多进程生成波形(对于每个Event分步进行,以节省内存)并保存
 
-    输入: 
+    输入:
     filename, 保存文件名;
     ParticleTruth; PETruth;
     PETruth (Structured Array) [EventID, ChannelID, PETime];
@@ -162,8 +188,10 @@ def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2,
     td, 整体衰减时间;
     tr, 峰值位置;
     ratio, 噪声振幅/波形高度;
-    noisetype, 噪声形式: 'normal' 正态分布噪声, 'sin' 正弦噪声; 
-    controlnoise, 是否对噪声控制变量: True则噪声event-wise相同, False则噪声event-wise随机, 无论如何channel-wise均随机.
+    noisetype, 噪声形式: 'normal' 正态分布噪声, 'sin' 正弦噪声;
+    controlnoise, 是否对噪声控制变量: True则噪声event-wise相同,
+                                      False则噪声event-wise随机,
+                  无论如何channel-wise均随机.
 
     返回:
     无
@@ -212,19 +240,32 @@ def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2,
                     noise_0 = normal_noise(t, ratio * ampli)
 
             # 生成Waveform
-            Waveform = noise_0[:length] + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+            Waveform = noise_0[:length] + double_exp_model(
+                t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1),
+                ampli,
+                td,
+                tr
+            )
 
             # numpy groupby
             # ref:
             # https://stackoverflow.com/questions/58546957/sum-of-rows-based-on-index-with-numpy
-            Channels, idx = np.unique(PETruth[Eindex[i]:Eindex[i+1]]['ChannelID'], return_inverse=True)
+            Channels, idx = np.unique(
+                PETruth[Eindex[i]:Eindex[i+1]]['ChannelID'],
+                return_inverse=True
+            )
             order = np.argsort(idx)
             breaks = np.flatnonzero(np.concatenate(([1], np.diff(idx[order]))))
             # 同Channel波形相加
             result = np.add.reduceat(Waveform[order], breaks, axis=0)
 
             # 拼接WF表
-            WF = np.empty(len(Channels), dtype=[('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))])
+            WF = np.empty(
+                len(Channels),
+                dtype=[('EventID', '<i4'),
+                       ('ChannelID', '<i4'),
+                       ('Waveform', '<i2', (1000,))]
+            )
             WF['EventID'] = np.ones(len(Channels))*Events[i]
             WF['ChannelID'] = Channels
             WF['Waveform'] = result
@@ -236,7 +277,7 @@ def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2,
 
     def write_file(output):
         # open file
-        f =  h5py.File(filename, "a")
+        f = h5py.File(filename, "a")
         # 初始化Waveform表的Flag
         init = True
         # 多Event同时写入
@@ -255,8 +296,16 @@ def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2,
                 if ev == 0:
                     if init:
                         # 初始化Waveform表
-                        wfds = f.create_dataset('Waveform', (len(WF),), maxshape=(None,), 
-                                dtype=np.dtype([('EventID', '<i4'), ('ChannelID', '<i4'), ('Waveform', '<i2', (1000,))]))
+                        wfds = f.create_dataset(
+                            'Waveform',
+                            (len(WF),),
+                            maxshape=(None,),
+                            dtype=np.dtype(
+                                [('EventID', '<i4'),
+                                 ('ChannelID', '<i4'),
+                                 ('Waveform', '<i2', (1000,))]
+                            )
+                        )
                         init = False
                     else:
                         # 扩大Waveform表
@@ -303,12 +352,9 @@ def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2,
 
     for p in jobs:
         p.join()
-    
+
     # 结束文件写入
     output.put([0, None], block=False)
     proc.join()
     pbar_write.close()
     pbar_getwf.close()
-
-    
-

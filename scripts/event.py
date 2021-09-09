@@ -1,17 +1,18 @@
 '''
 event.py: 顶点与光子模拟
-主函数：generate_events
+
+主要接口：generate_events
 生成球内均匀分布的顶点位置坐标，使用非齐次泊松分布采样光子时间
 '''
 
+import multiprocessing
 import numpy as np
 from scipy.integrate import quad
-import multiprocessing
-from . import utils
 from tqdm import tqdm
 from numba import njit
+from . import utils
 
-LS_RADIUS = 17.71 # 液闪的半径，单位m
+LS_RADIUS = utils.Ri # 液闪的半径，单位m
 SIGMA = 5 # 正态分布的标准差
 TAU = 20 # 指数衰减函数e^(-t/tau)中的tau
 NORM_FACTOR = 69.1504473757916# 期望的归一化系数
@@ -70,7 +71,6 @@ def generate_events(number_of_events):
                 total=expect_list.shape[0]
             ))
         )
-    print("初始化完成！")
     max_expect = max(expect_list)
     # 线性插值
     @njit
@@ -94,7 +94,6 @@ def generate_events(number_of_events):
     event_coordinates = np.array(
         utils.xyz_from_spher(event_r, event_theta, event_phi)
         ).transpose()
-    print("event位置生成完成！")
 
     # 生成ParticleTruth
     par_tr_dtype = [
@@ -110,7 +109,7 @@ def generate_events(number_of_events):
     Particle_Truth['y'] = event_coordinates[:, 1]*1000
     Particle_Truth['z'] = event_coordinates[:, 2]*1000
     Particle_Truth['p'] = np.ones(number_of_events)
-    print("Particle_Truth表生成完成！")
+    print("ParticleTruth表生成完成！")
 
     # 生成光子，先用齐次泊松分布，再用expectation来thin
     print("生成光子中...")
@@ -144,7 +143,6 @@ def generate_events(number_of_events):
     Photon_Truth['EventID'] = event_ids[:start]
     Photon_Truth['PhotonID'] = photon_ids[:start]
     Photon_Truth['GenTime'] = gen_times[:start]
-    print("Photon_Truth表生成完成！")
+    print("PhotonTruth表生成完成！")
 
-    print("生成完成！")
     return Particle_Truth, Photon_Truth

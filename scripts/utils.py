@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.constants
 import h5py
 import numexpr as ne
 
@@ -16,6 +17,16 @@ save_file:
 save data file
 
 '''
+
+# 常数定义
+Ri = 17.71 # 液闪半径，单位m
+Ro = 19.5 # PMT球心构成的球半径，单位m
+n_water = 1.33 # 水的折射率
+n_LS = 1.48 # 液闪的折射率
+n_glass = 1.5 # 玻璃的折射率
+c = scipy.constants.c # 光速，单位m/s
+r_PMT = 0.508/2 # PMT的半径，单位m
+
 
 def xyz_from_spher(r, theta, phi):
     '''

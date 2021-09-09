@@ -11,6 +11,7 @@ test: figures.pdf test.pdf
 clean:
 	rm -f data.h5
 	rm -f figures.pdf
+	rm -f probe.pdf
 	rm -f test.pdf
 
 data.h5: geo.h5
@@ -18,6 +19,9 @@ data.h5: geo.h5
 
 figures.pdf: data.h5 geo.h5
 	python3 draw.py $< -g $(word 2,$^) -o $@
+
+probe.pdf:
+	python3 drawSimProbe.py
 
 test.pdf: data.h5 geo.h5
 	python3 test.py $< -g $(word 2,$^) -o $@
