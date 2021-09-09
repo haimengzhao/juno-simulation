@@ -81,6 +81,17 @@ def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisety
     Events, Eindex = np.unique(EventID, return_index=True)
     Eindex = np.hstack([Eindex, np.array(len(EventID))])
 
+    # 预先制备时间采样和噪声以加速
+    maxlength = np.max(Eindex[1:] - Eindex[:-1])
+    t0 = np.tile(np.arange(0, 1000, 1), (maxlength, 1))
+    if noisetype == 'normal':
+        noise_0 = normal_noise(t0, ratio * ampli)
+    elif noisetype == 'sin':
+        noise_0 = sin_noise(t0, np.pi/1e30, ratio * ampli)
+    else:
+        print(f'{noisetype} noise not implemented, use normal noise instead!')
+        noise_0 = normal_noise(t0, ratio * ampli)
+
     init = True
 
     f =  h5py.File(filename, "a")
@@ -89,16 +100,10 @@ def get_waveform(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2, noisety
     for i in tqdm(range(len(Eindex)-1)):
         # 采样
         length = Eindex[i+1] - Eindex[i]
-        t = np.tile(np.arange(0, 1000, 1), (length, 1))
+        t = t0[:length]
 
         # 生成Waveform
-        if noisetype == 'normal':
-            Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
-        elif noisetype == 'sin':
-            Waveform = sin_noise(t, np.pi/1e30, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
-        else:
-            print(f'{noisetype} noise not implemented, use normal noise instead!')
-            Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+        Waveform = noise_0[:length] + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
 
         # numpy groupby
         # ref:
@@ -158,10 +163,21 @@ def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2,
     Events, Eindex = np.unique(EventID, return_index=True)
     Eindex = np.hstack([Eindex, np.array(len(EventID))])
 
+    # 预先制备时间采样和噪声以加速
+    maxlength = np.max(Eindex[1:] - Eindex[:-1])
+    t0 = np.tile(np.arange(0, 1000, 1), (maxlength, 1))
+    if noisetype == 'normal':
+        noise_0 = normal_noise(t0, ratio * ampli)
+    elif noisetype == 'sin':
+        noise_0 = sin_noise(t0, np.pi/1e30, ratio * ampli)
+    else:
+        print(f'{noisetype} noise not implemented, use normal noise instead!')
+        noise_0 = normal_noise(t0, ratio * ampli)
+
     # 分Event并行化生成Waveform
     # ref:
     # https://stackoverflow.com/questions/15704010/write-data-to-hdf-file-using-multiprocessing
-    num_processes = 8
+    num_processes = 1
     sentinal = None
     write_chunk = 50
     pbar_write = tqdm(total=(len(Eindex)-1)/write_chunk)
@@ -171,16 +187,10 @@ def get_waveform_bychunk(filename, PETruth, ampli=1000, td=10, tr=5, ratio=1e-2,
         for i in iter(inqueue.get, sentinal):
             # 采样
             length = Eindex[i+1] - Eindex[i]
-            t = np.tile(np.arange(0, 1000, 1), (length, 1))
+            t = t0[:length]
 
             # 生成Waveform
-            if noisetype == 'normal':
-                Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
-            elif noisetype == 'sin':
-                Waveform = sin_noise(t, np.pi/1e30, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
-            else:
-                print(f'{noisetype} noise not implemented, use normal noise instead!')
-                Waveform = normal_noise(t, ratio * ampli) + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
+            Waveform = noise_0[:length] + double_exp_model(t - PETruth[Eindex[i]:Eindex[i+1]]['PETime'].reshape(-1, 1), ampli, td, tr)
 
             # numpy groupby
             # ref:

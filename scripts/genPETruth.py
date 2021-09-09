@@ -1,213 +1,293 @@
 import numpy as np
 from tqdm import tqdm
 import multiprocessing
-from scipy.interpolate import RectBivariateSpline
 import numexpr as ne
 from numba import njit
-from . import utils
-from .getProbTime import gen_data
+import h5py as h5
+import gc
+from scipy.spatial import KDTree
+from .utils import xyz_from_spher
 '''
 gen_PETruth.py: 根据光学部分，ParticleTruth和PETruth，得到PETruth
 根据模拟时使用的get_PE_probability函数绘制probe图像
 可与draw.py中根据data.h5绘制的probe图像进行对比.
 '''
+n_water = 1.33
+n_LS = 1.48
+n_glass = 1.5
+eta = n_LS / n_water
+Ri = 17.71
+Ro = 19.5
+r_PMT = 0.508/2
+c = 0.3
 
-PRECISION = 100
-LS_RADIUS = 17.71
-PMT_R = 19.5
-CHUNK = 10000
+PETruth = {}
+PETruth['EventID'] = []
+PETruth['ChannelID'] = []
+PETruth['PETime'] = []
+PMTs = np.array([[1,2], [1,2], [1,2]])
+kdtree = KDTree(PMTs)
 
-def gen_interp():
+def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list):
     '''
-    生成插值函数，使用其中的插值函数来近似get_PE_probability与get_random_PE_time
-    生成的插值函数支持1D-array输入
+    从ParticleTruth和PhotonTruth, 结合PMT几何信息，给出PETruth
+    一次并行计算event_num // 10 个event
     '''
-    print("正在生成插值函数...")
+    # 初始化全局变量，我担心跑两遍会出奇怪的问题
+    global PETruth, PMTs, kdtree
+    PETruth = {}
+    PETruth['EventID'] = []
+    PETruth['ChannelID'] = []
+    PETruth['PETime'] = []
 
-    # 插值用网格
-    ro = np.concatenate(
-        (
-            np.linspace(0.2, 16.5, PRECISION, endpoint=False),
-            np.linspace(16.5, LS_RADIUS, PRECISION//2)
-        )
+    event_num = ParticleTruth.shape[0]
+    PMT_x, PMT_y, PMT_z = xyz_from_spher(
+        Ro, PMT_list['theta']/180*np.pi, PMT_list['phi']/180*np.pi
     )
-    theta = np.linspace(0, np.pi, PRECISION)
-    thetas, ros = np.meshgrid(theta, ro)
+    PMTs = np.stack((PMT_x, PMT_y, PMT_z))
+    kdtree = KDTree(np.stack((PMT_x, PMT_y, PMT_z), axis=-1))
 
-    # 测试点: yz平面
-    xs = np.zeros(PRECISION**2*3//2)
-    ys = (np.sin(thetas) * ros).flatten()
-    zs = (np.cos(thetas) * ros).flatten()
-
-    prob_t, prob_r, mean_t, mean_r, std_t, std_r = np.zeros(
-        (6, PRECISION*3//2, PRECISION)
+    # 生成每个photon的坐标coordinates
+    photon_num_per_event = np.roll(PhotonTruth[
+        np.unique(PhotonTruth['EventID'], return_index=True)[1] - 1
+    ]['PhotonID'], -1) + 1
+    repeated_par_tr = np.repeat(ParticleTruth, photon_num_per_event)
+    coordinates = np.stack(
+        (repeated_par_tr['x']/1000, repeated_par_tr['y']/1000, repeated_par_tr['z']/1000)
     )
-
-    # 多线程
-    pool = multiprocessing.Pool(8)
-
-    # 模拟光线
-    res = np.array(
-        list(
-            tqdm(
-                pool.imap(
-                    gen_data,
-                    np.stack(
-                        (
-                            xs,
-                            ys,
-                            zs,
-                            np.zeros(PRECISION**2*3//2),
-                            np.zeros(PRECISION**2*3//2)
-                        ),
-                        axis=-1
-                    )
-                ),
-                total=PRECISION**2*3//2
-            )
-        )
-    )
-
-    # 储存插值点信息
-    prob_t = res[:, 0].reshape(-1, PRECISION)
-    prob_r = res[:, 1].reshape(-1, PRECISION)
-    mean_t = res[:, 2].reshape(-1, PRECISION)
-    mean_r = res[:, 3].reshape(-1, PRECISION)
-    std_t = res[:, 4].reshape(-1, PRECISION)
-    std_r = res[:, 5].reshape(-1, PRECISION)
-
-    # 插值函数
-    get_prob_t = RectBivariateSpline(ro, theta, prob_t, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
-    get_prob_r = RectBivariateSpline(ro, theta, prob_r, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
-    get_mean_t = RectBivariateSpline(ro, theta, mean_t, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
-    get_mean_r = RectBivariateSpline(ro, theta, mean_r, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
-    get_std_t = RectBivariateSpline(ro, theta, std_t, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
-    get_std_r = RectBivariateSpline(ro, theta, std_r, kx=1, ky=1, bbox=[0, 17.71, 0, np.pi]).ev
-
-
-    print("插值函数生成完毕！")
-    return get_prob_t, get_prob_r, get_mean_t, get_mean_r, get_std_t, get_std_r
-
-def to_relative_position(x, y, z, PMT_phi, PMT_theta):
-    '''
-    将顶点位置x, y, z与PMT位置phi, theta转化成插值时的r, theta
-    '''
-    PMT_x, PMT_y, PMT_z = utils.xyz_from_spher(PMT_R, PMT_theta, PMT_phi)
-    r = np.sqrt(x**2 + y**2 + z**2)
-    theta = ne.evaluate("arccos((PMT_R**2 + r**2 - (PMT_x - x)**2 - (PMT_y - y)**2 - (PMT_z - z)**2 )/(2*PMT_R*r))")
-    return r, theta
-
-def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list, number_of_events):
-    '''
-    通过Particle_Truth与Photon_Truth，生成PE_Truth
-    '''
-    PMT_COUNT = PMT_list.shape[0]
-    get_prob_t, get_prob_r, get_mean_t, get_mean_r, get_std_t, get_std_r = gen_interp()
-    rng = np.random.default_rng()
-
-    def intp_PE_probability(x, y, z, PMT_phi, PMT_theta):
-        '''
-        用于代替光学部分中的get_PE_probability，使用插值函数
-        '''
-        r, theta = to_relative_position(x, y, z, PMT_phi, PMT_theta)
-        return np.dstack((get_prob_t(r, theta), get_prob_r(r, theta)))
-
-    def intp_random_PE_time(x, y, z, PMT_phi, PMT_theta, prob_t, prob_r):
-        '''
-        用于代替光学部分中的get_random_PE_time，使用插值函数
-        '''
-        r, theta = to_relative_position(x, y, z, PMT_phi, PMT_theta)
-        if(np.any(prob_t + prob_r == 0)):
-            print("侦测到除数为0，这不应该发生，触发断点以调查")
-            breakpoint()
-        return np.where(
-            rng.random(r.shape) < prob_t / (prob_t + prob_r),
-            np.clip(rng.normal(
-                get_mean_t(r, theta),
-                get_std_t(r, theta)
-            ), 0, None),
-            np.clip(rng.normal(
-                get_mean_r(r, theta),
-                get_std_r(r, theta)
-            ), 0, None)
-        )
-    PE_prob_cumsum = np.zeros((number_of_events, PMT_COUNT))
-    PE_prob_array = np.zeros((number_of_events, PMT_COUNT, 2))
-
-    print("正在给每个event生成打到每个PMT上的概率...")
-    for event in tqdm(ParticleTruth):
-        PE_prob_array[event['EventID']][:][:] = intp_PE_probability(
-            np.zeros(PMT_COUNT) + event['x']/1000,
-            np.zeros(PMT_COUNT) + event['y']/1000,
-            np.zeros(PMT_COUNT) + event['z']/1000,
-            PMT_list['phi']/180*np.pi,
-            PMT_list['theta']/180*np.pi
-        )
-        PE_prob_cumsum[event['EventID']][:] = np.cumsum(
-            np.sum(PE_prob_array[event['EventID']], axis=1)
-        )
-
-    print("正在模拟每个光子打到的PMT与PETime...")
-
-    @njit
-    def get_PETimes(PhotonTruth, ParticleTruth, PMT_list, PE_prob_array, PE_prob_cumsum ):
-        PE_event_ids = np.zeros(PhotonTruth.shape[0])
-        PE_channel_ids = np.zeros(PhotonTruth.shape[0])
-        PE_petimes = np.zeros(PhotonTruth.shape[0])
-        parameters_of_time = np.zeros((PhotonTruth.shape[0], 7))
-        
-        index = 0
-        for photon in PhotonTruth:
-            channel_hit = np.asarray(np.random.random() < PE_prob_cumsum[photon['EventID']][:]).nonzero()[0]
-            if channel_hit.shape[0] > 0:
-                PE_event_ids[index] = photon['EventID']
-                PE_channel_ids[index] = channel_hit[0]
-                PE_petimes[index] = photon['GenTime']
-                parameters_of_time[index][:] = [
-                    ParticleTruth[photon['EventID']]['x']/1000,
-                    ParticleTruth[photon['EventID']]['y']/1000,
-                    ParticleTruth[photon['EventID']]['z']/1000,
-                    PMT_list[channel_hit[0]]['phi']/180*np.pi,
-                    PMT_list[channel_hit[0]]['theta']/180*np.pi,
-                    PE_prob_array[event['EventID']][channel_hit[0]][0],
-                    PE_prob_array[event['EventID']][channel_hit[0]][1]
-                ]
-                index += 1
-        return index, PE_event_ids, PE_channel_ids, PE_petimes, parameters_of_time
     
-    index, PE_event_ids, PE_channel_ids, PE_petimes, parameters_of_time = get_PETimes(PhotonTruth, ParticleTruth, PMT_list, PE_prob_array, PE_prob_cumsum)
+    # 将问题分成10次循环，以防止内存爆炸
+    start_coordinate_index = 0
+    step = event_num // 10
+    for event_index in tqdm(range(0, step*11, step)):
+        photon = np.sum(photon_num_per_event[event_index:event_index+step])
+        if photon == 0:
+            break
+        end_coordinate_index = start_coordinate_index + photon
 
-    PE_petimes[:index] += intp_random_PE_time(
-                parameters_of_time[:index][:,0],
-                parameters_of_time[:index][:,1],
-                parameters_of_time[:index][:,2],
-                parameters_of_time[:index][:,3],
-                parameters_of_time[:index][:,4],
-                parameters_of_time[:index][:,5],
-                parameters_of_time[:index][:,6],
-            )*1e9
-    print("正在生成PETruth表...")
-    pe_tr_dtype = [
-        ('EventID', '<i4'),
-        ('ChannelID', '<i4'),
-        ('PETime', '<f8')
-    ]
-    PETruth = np.zeros(index, dtype=pe_tr_dtype)
-    PETruth['EventID'] = PE_event_ids[:index]
-    PETruth['ChannelID'] = PE_channel_ids[:index]
-    PETruth['PETime'] = PE_petimes[:index]
-    start_index = 0
+        chunk_coordinates = coordinates[
+            :, start_coordinate_index:end_coordinate_index
+        ]
 
-    print("正在生成PETruth表...")
-    pe_tr_dtype = [
-        ('EventID', '<i4'),
-        ('ChannelID', '<i4'),
-        ('PETime', '<f8')
-    ]
-    PETruth = np.zeros(index, dtype=pe_tr_dtype)
-    PETruth['EventID'] = PE_event_ids[:index]
-    PETruth['ChannelID'] = PE_channel_ids[:index]
-    PETruth['PETime'] = PE_petimes[:index]
+        t = np.random.random(photon) * np.pi
+        p = np.random.random(photon) * 2 * np.pi
+        vxs = np.sin(t) * np.cos(p)
+        vys = np.sin(t) * np.sin(p)
+        vzs = np.cos(t)
+        try_velocities = np.stack((vxs, vys, vzs))
+        events = PhotonTruth[start_coordinate_index:end_coordinate_index]['EventID']
+        times = PhotonTruth[start_coordinate_index:end_coordinate_index]['GenTime']
+        can_reflect = np.ones(photon)
+        transist(chunk_coordinates, try_velocities, times, events, can_reflect)
+        start_coordinate_index = end_coordinate_index
+ 
+    # 将dict转成structured array
+    names = ['EventID', 'ChannelID', 'PETime']
+    formats = ['<i4', '<i4', '<f8']
+    dtype = dict(names=names, formats=formats)
+    PETruth_structured = np.empty(len(PETruth['EventID']), dtype=dtype)
+    PETruth_structured['EventID'] = PETruth['EventID']
+    PETruth_structured['ChannelID'] = PETruth['ChannelID']
+    PETruth_structured['PETime'] = PETruth['PETime']
 
-    print("PETruth表生成完毕！")
-    return PETruth
+    # 按event排序
+    order = np.argsort(PETruth_structured['EventID'])
+    PETruth_structured = PETruth_structured[order]
+
+    return PETruth_structured
+
+
+def transist(coordinates, velocities, times, events, can_reflect):
+    # 求解折射点
+    cv = np.einsum('kn, kn->n', coordinates, velocities)
+    ts = -cv + np.sqrt(cv**2 - np.einsum('kn, kn->n', coordinates, coordinates) + Ri**2)   #到达液闪边界的时间
+    edge_points = coordinates + ts * velocities
+    
+    # 计算增加的时间
+    new_times = times + (n_LS/c)*ts
+
+    # 计算入射角，出射角
+    normal_vectors = -edge_points / Ri
+    incidence_vectors = velocities
+    vertical_of_incidence = np.maximum(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1)
+    incidence_angles = np.arccos(-vertical_of_incidence)
+    
+    # 判断全反射
+    max_incidence_angle = np.arcsin(n_water/n_LS)
+    can_transmit = (incidence_angles < max_incidence_angle)
+
+    #计算折射光，反射光矢量与位置
+    reflected_velocities = velocities - 2 * vertical_of_incidence * normal_vectors
+
+    delta = ne.evaluate('1 - eta**2 * (1 - vertical_of_incidence**2)')
+    new_velocities = ne.evaluate('(eta*incidence_vectors - (eta*vertical_of_incidence + sqrt(abs(delta))) * normal_vectors) * can_transmit') #取绝对值避免出错
+
+    # 计算折射系数
+    emergence_angles = np.arccos(np.minimum(np.einsum('kn, kn->n', new_velocities, -normal_vectors), 1))
+    Rs = ne.evaluate('(sin(emergence_angles - incidence_angles)/sin(emergence_angles + incidence_angles))**2')
+    Rp = ne.evaluate('(tan(emergence_angles - incidence_angles)/tan(emergence_angles + incidence_angles))**2')
+    R = (Rs+Rp)/2
+
+    # 选出需要折射和反射的光子
+    probs = np.random.random(times.shape[0])
+    need_transmit = (probs>R) * can_transmit
+    need_reflect = np.logical_not(need_transmit) * can_reflect.astype(bool)
+
+    # 处理需要折射出去的光子
+    if need_transmit.any():
+        hit_PMT(edge_points[:, need_transmit], new_velocities[:, need_transmit], 
+                new_times[need_transmit], events[need_transmit], can_reflect[need_transmit])
+
+    # 处理需要继续反射的光子
+    if need_reflect.any():
+        transist(edge_points[:, need_reflect], reflected_velocities[:, need_reflect], 
+                 new_times[need_reflect], events[need_reflect], np.zeros(need_reflect.sum()))
+
+
+def find_hit_PMT(coordinates, velocities, fromPMT=False):
+    '''
+    coordinates: (3, n)
+    PMT_coordinates: (3, m)
+    接收一族光线，给出其未来所有时间内与给定PMT的最近距离
+    注意：光线是有方向的，如果光子将越离越远，那么将返回负数距离
+    '''
+    # 查找在球面上最邻近的PMT
+    cv1 = np.einsum('kn, kn->n', coordinates, velocities)
+    ts1 = -cv1 + np.sqrt(cv1**2 - (np.einsum('kn, kn->n', coordinates, coordinates)-Ro**2))    #到达液闪边界的时间
+    edge_points1 = coordinates + ts1 * velocities
+    outer_points = np.stack((edge_points1[0, :], edge_points1[1, :], edge_points1[2, :]), axis=-1)
+
+    inserted_points = np.empty(1)
+    if fromPMT:
+        insert_num = 100
+        inner_points = np.stack((coordinates[0, :], coordinates[1, :], coordinates[2, :]), axis=-1)
+        inserted_points = np.linspace(inner_points, outer_points, insert_num)[1:, :, :]
+    else:
+        insert_num = 5
+        cv2 = np.einsum('kn, kn->n', coordinates, velocities)
+        ts2 = -cv2 + np.sqrt(cv2**2 - (np.einsum('kn, kn->n', coordinates, coordinates)-(Ro-r_PMT)**2))    #到达液闪边界的时间
+        edge_points2 = coordinates + ts2 * velocities
+        inner_points = np.stack((edge_points2[0, :], edge_points2[1, :], edge_points2[2, :]), axis=-1)
+        inserted_points = np.linspace(inner_points, outer_points, insert_num)
+
+    search_distances, search_indexs = kdtree.query(inserted_points, workers=-1, distance_upper_bound=r_PMT) # 返回搜索得到的最邻近点距离和最邻近点index
+    allowed_distances = search_distances < np.inf
+    possible_photon = np.where(np.any(allowed_distances, axis=0))[0]
+    first_point_index = np.argmax(allowed_distances[:, possible_photon], axis=0)
+
+    nearest_PMT_index = search_indexs[first_point_index, possible_photon]
+    del search_distances, search_indexs, allowed_distances, first_point_index
+
+    return nearest_PMT_index, possible_photon
+
+
+def hit_PMT(coordinates, velocities, times, events, can_reflect, fromPMT=False):
+    # 给出打到的PMT编号和能打中PMT光子的编号
+    nearest_PMT_index, possible_photon = find_hit_PMT(coordinates, velocities, fromPMT)
+    possible_coordinates = coordinates[:, possible_photon]
+    possible_velocities = velocities[:, possible_photon]
+    possible_times = times[possible_photon]
+    possible_events = events[possible_photon]
+    possible_reflect = can_reflect[possible_photon]
+    possible_PMT = PMTs[:, nearest_PMT_index]
+    print(f'ratio = {possible_photon.shape[0]/times.shape[0]}')
+
+    # 计算到达时间
+    PMT2edge = possible_coordinates - possible_PMT
+    ts = -np.einsum('kn, kn->n', PMT2edge, possible_velocities) -\
+          np.sqrt(np.einsum('kn, kn->n', PMT2edge, possible_velocities)**2 - np.einsum('kn, kn->n', PMT2edge, PMT2edge) + r_PMT**2)
+    arrive_times = possible_times + (n_water/c)*ts
+
+    # 计算到达点，以及入射角、出射角
+    edge_points = possible_coordinates + ts*possible_velocities
+    normal_vectors = (edge_points - possible_PMT) / r_PMT
+    norm = np.linalg.norm(normal_vectors, axis=0)
+    incidence_vectors = possible_velocities
+    vi = np.einsum('kn, kn->n', incidence_vectors, normal_vectors)
+    incidence_angles = np.arccos(-np.maximum(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1))
+    print(f'incidence_angles = {incidence_angles.mean()}, var = {incidence_angles.var()}')
+    emergence_angles = np.arcsin((n_water/n_glass) * np.sin(incidence_angles))
+    print(f'emergence_angles = {emergence_angles.mean()}, var = {emergence_angles.var()}')
+    
+    # 计算反射系数->反射概率
+    Rs = ne.evaluate('(sin(emergence_angles - incidence_angles)/sin(emergence_angles + incidence_angles))**2')
+    Rp = ne.evaluate('(tan(emergence_angles - incidence_angles)/tan(emergence_angles + incidence_angles))**2')
+    R = (Rs+Rp)/2
+    print(f'R average = {R.mean()}')
+
+    probs = np.random.random(possible_photon.shape[0])
+    need_transmit = probs > R  # 水的折射率小于玻璃，不可能全反射
+    need_reflect = np.logical_not(need_transmit) * possible_reflect.astype(bool)
+
+    # 处理折射进入PMT的光子
+    if need_transmit.any():
+        print(f'need_transmit = {need_transmit.sum()}')
+        write(possible_events[need_transmit], nearest_PMT_index[need_transmit], arrive_times[need_transmit], PETruth)
+
+    # 处理需要继续反射的光子
+    if need_reflect.any():
+        print(f'need_reflect = {need_reflect.sum()}')
+        reflect_coordinates = edge_points[:, need_reflect]
+        reflect_velocities = incidence_vectors[:, need_reflect] -\
+                              2 * np.einsum('kn ,kn->n', incidence_vectors[:, need_reflect], normal_vectors[:, need_reflect]) * normal_vectors[:, need_reflect]
+        reflect_times = arrive_times[need_reflect]
+        reflect_events = possible_events[need_reflect]
+
+        # 计算反射光线到球心的距离，判断是否会射回液闪内
+        rt = -np.einsum('kn, kn->n', reflect_coordinates, reflect_velocities)
+        ds = np.linalg.norm(reflect_coordinates + rt*reflect_velocities, axis=0)
+        go_into_LS = ds < Ri
+        hit_PMT_again = np.logical_not(go_into_LS)
+
+        # 找出会射回液闪球内的
+        print(f'go_into_LS = {go_into_LS.sum()}')
+        go_inside(reflect_coordinates[:, go_into_LS], reflect_velocities[:, go_into_LS], 
+                  reflect_times[go_into_LS], reflect_events[go_into_LS])
+
+        # 找出继续在水中行进的
+        print(f'hit_PMT_again = {hit_PMT_again.sum()}')
+        hit_PMT(reflect_coordinates[:, hit_PMT_again], reflect_velocities[:, hit_PMT_again], 
+                reflect_times[hit_PMT_again], reflect_events[hit_PMT_again], np.zeros(hit_PMT_again.sum()),fromPMT=True)
+
+
+
+def go_inside(coordinates, velocities, times, events):
+    # 求解折射点
+    cv = np.einsum('kn, kn->n', coordinates, velocities)
+    ts = -cv - np.sqrt(cv**2 - np.einsum('kn, kn->n', coordinates, coordinates) + Ri**2)   #到达液闪边界的时间
+    edge_points = coordinates + ts * velocities
+    new_times = times + (n_water/c)*ts
+
+    # 计算入射角，出射角
+    normal_vectors = edge_points / Ri
+    incidence_vectors = velocities
+    vertical_of_incidence = np.maximum(np.einsum('kn, kn->n', incidence_vectors, normal_vectors), -1)
+    incidence_angles = np.arccos(-vertical_of_incidence)
+
+    #计算折射光，反射光矢量与位置
+    reflected_velocities = velocities - 2 * vertical_of_incidence * normal_vectors
+
+    delta = ne.evaluate('1 - eta**2 * (1 - vertical_of_incidence**2)')
+    new_velocities = ne.evaluate('eta*incidence_vectors - (eta*vertical_of_incidence + sqrt(delta)) * normal_vectors') #取绝对值避免出错
+
+    # 计算折射系数
+    emergence_angles = np.arccos(np.minimum(np.einsum('kn, kn->n', new_velocities, -normal_vectors), 1))
+    Rs = ne.evaluate('(sin(emergence_angles - incidence_angles)/sin(emergence_angles + incidence_angles))**2')
+    Rp = ne.evaluate('(tan(emergence_angles - incidence_angles)/tan(emergence_angles + incidence_angles))**2')
+    R = (Rs+Rp)/2
+
+    # 选出需要折射和反射的光子
+    probs = np.random.random(times.shape[0])
+    need_transmit = probs > R
+
+    if need_transmit.any():
+        transist(edge_points[:, need_transmit], new_velocities[:, need_transmit], new_times[need_transmit], events[need_transmit], np.zeros(need_transmit.sum()))
+
+
+
+
+def write(events, PMT_indexs, times, PETruth):
+    PETruth['EventID'].extend(list(events))
+    PETruth['ChannelID'].extend(list(PMT_indexs))
+    PETruth['PETime'].extend(list(times))
+
