@@ -1,4 +1,4 @@
-    '''
+'''
 drawSimProbe.py: 使用double-search法绘制probe图像
 
 描述: double-search算法的画图脚本，使用genSimProbe的插值函数绘制probe图像
