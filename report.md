@@ -14,7 +14,7 @@
 
 ## 摘要
 
-本项目以JUNO中微子探测装置为背景，对顶点模拟、光子生成、光学过程、PMT波形生成进行了建模与算法实现。通过创新性的算法设计与架构优化，我们在保证算法高精度的前提下，将算法运行速度大大提升，实现了在笔记本上以2分钟左右的时间完成除波形外的所有任务，10分钟左右的时间完成全部任务的效果。同时，根据模拟数据绘制出的图像很好地反映了算法的可靠性。
+本项目以JUNO中微子探测装置为背景，对顶点模拟、光子生成、光学过程、PMT波形生成进行了建模与算法实现。通过创新性的算法设计与架构优化，我们在保证算法高精度的前提下，将算法运行速度大大提升，实现了在笔记本上以2分钟左右的时间完成除波形外的所有任务，10分钟左右的时间完成全部任务。同时，根据模拟数据绘制出的图像很好地反映了算法的可靠性。高效而可靠的数值模拟，使我们在JUNO尚未建造完成时，就可以对其中可能发生的物理过程有所了解。
 
 ## 目录
 
@@ -107,19 +107,39 @@ python3 draw.py data.h5 -g geo.h5 -o figures.pdf
 
 非齐次泊松过程的采样需要先计算期望$\lambda(t)$，这由卷积给出，无法得到很好的解析表达式。`scipy.integration.quad`运行速度虽然已经很快，但这里需要计算的期望数可能有几亿次，耗费时间太久。因此，我们采用了线性插值的方法。
 
-非齐次泊松过程采样并不容易处理，而齐次泊松过程采样实现起来较为方便。
+非齐次泊松过程采样并不容易处理，而齐次泊松过程采样实现起来较为方便。因此我们使用了```Acceptance-Rejection Method```，先使用齐次泊松过程采样，然后使用期望值来`accept`或`reject`。
 
-### 1.2. 算法
+### 1.2. 实现方式
 
+#### 1.2.1. 顶点坐标生成
 
+通过简单的数学计算，可以得到，球坐标下如果位置分布均匀，$r$的概率密度函数应该是平方正比。由对称性，$\theta$和$\phi$是均匀分布的。使用`numpy.random.Generator.power`，将参数$a$设置为3，便可以生成范围在$[0,1]$的，概率密度平方正比的随机数。然后再乘液闪的半径，得到事件的$r$坐标。$\theta$，$\phi$由`numpy.random.Generator.random`生成，前者需要乘$\pi$，后者需要乘$2\pi$。
 
-### 1.3. 主要实现方式
+生成后，转成$(x,y,z)$即可。此算法的正确性证明见3.2.1节。
 
+#### 1.2.2. 光子生成
 
+本题中的期望函数为指数衰减与高斯分布的卷积，可以表达为以下形式：
+$$
+\lambda(t)=k\int_0^{+\infty}e^{-x-(t/\tau-x)/2\sigma^2}dx
+$$
+其中$k$为归一化系数。本题中，$\tau=20\text{ns}$，$\sigma=5$。由于题目要求，$\lambda(t)$在$[0, +\infty)$上的积分应为$10000$。数值计算得到$k=69.1504473757916$。$\lambda(t)$的图像如下图所示：
 
-### 1.4. 遇到的问题与解决办法
+<img src="./figs/lambda_t.png" style="zoom:72%;" />
 
+泊松过程采样有两种思路：第一种是确定事件的个数，采样时间；第二种是确定总时间，模拟事件在一段时间内的发生。考虑到实际情况，每个顶点不可能正好产生$10000$个光子，且后一个光子的产生时间会依赖于前一个光子，不适合于计算机大规模计算，因此我们不采用第一种方式，**而是使用固定总时间的方式**。
 
+我们采用的总时间为$T=500\text{ns}$。这时候的$\lambda(t)=0.001615$，而最大值$\lambda_{\text{max}}=67.874$，因此可以忽略在此之后产生的光子。
+
+我们先按照$\lambda(t) = \lambda^{*}$的齐次泊松分布，模拟$T$时间内的事件。采用的方法是，先使用`np.random.Generator.poisson`采一次样，给出$T$时间内发生的事件数$n$；然后在$[0, T]$区间内按照均匀分布，随机生成$n$个随机数，使用`np.sort`来排序。排序后，每个随机数代表一个事件发生的事件。
+
+在齐次泊松过程取样后，对每一个事件，按照$\lambda(t)/\lambda^{*}$的概率保留，就得到了最后保留的光子生成时间。这一取样过程中，两个光子生成时间不存在依赖，因此能够很好地并行化。
+
+由于使用了齐次泊松过程取样，第一阶段产生的事件数期望值为$\lambda_{\text{max}}T$，约为34000次。如果要模拟4000个事件，就要计算**1.36亿次**$\lambda(t)$。然而，$\lambda(t)$由积分得到，每次积分需要耗费$10\mu \text{s}$数量级的时间，这个时间花费是不能够接受的。考虑到我们不需要得到很精确的$\lambda(t)$值，我们采用了线性插值的方法，每隔$1/\text{PRECISION}$取一个点，一般$\text{PRECISION}$取1000。
+
+在程序中，将光学过程中使用的光速$c$改成$3\times 10^{8}{m/ns}$，就可以忽略传播时间的影响，**PETime**给出原始的泊松采样得到的生成时间。~~（别问我为什么改成这个值，都是单位惹的锅）~~改动后，`figures.pdf`的第二张图如下，可见与$\lambda(t)$的图像一致，说明此算法的正确性。
+
+<img src="./figs/gentime.png" style="zoom:35%;" />
 
 ## 2. 光学过程
 
@@ -209,7 +229,7 @@ $$
 
 <img src="./figs/petime.png" alt="petime" style="zoom: 25%;" />
 
-
+TODO: 解释该图lmh
 
 #### 3.2.3. Data-driven的Probe函数热力图
 
@@ -275,7 +295,9 @@ $$
 
 <img src="./figs/probe_data.png" alt="probe_data" style="zoom:25%;" />
 
-注意到，该图左右上角位置Probe很小，代表着 **全反射** 区域；同时Probe函数随着距离PMT的位置增长而衰减（ $0\degree$  附近的红黄青渐变区域），对应着光子传播过程中 **平方反比** 的衰减；而图像下半部分的蓝色亮线，则代表着 **一次反射与折射** 等光学过程。另外，我们注意到图像呈现出关于半径的圆环图样，同时接近原点处出现空白，这是由于生成的Event数量较少（4000个），在随机涨落的影响下，Event数量较少的半径处会变暗，这也是Data-driven的Probe函数热力图的缺点，它受制于数据的随机性，而下一节所述的Sim-driven的Probe函数热力图则可以避免这一现象。
+注意到，该图左右上角位置Probe很小，代表着 **全反射** 区域；同时Probe函数随着距离PMT的位置增长而衰减（ $0\degree$  附近的红黄青渐变区域），对应着光子传播过程中 **平方反比** 的衰减；而图像下半部分的蓝色亮线，则代表着 **一次反射与折射** 等光学过程。
+
+另外，我们注意到图像呈现出关于半径的圆环图样，同时接近原点处出现空白，这是由于生成的Event数量较少（4000个），在随机涨落的影响下，Event数量较少的半径处会变暗，这也是Data-driven的Probe函数热力图的缺点，它受制于数据的随机性会产生涨落，而下一节所述的Sim-driven的Probe函数热力图则可以产生平滑的图像，很好地避免这一问题。
 
 #### 3.3.4. Sim-driven的Probe函数热力图
 通过模拟顶点均匀发出光子来计算该点光子能到达PMT的概率。这部分的光学设计与前面的光学设计不同的是：
@@ -380,11 +402,111 @@ def double_exp_model(t, ampli=1000, td=10, tr=5):
 
 <img src="./figs/normalnoise.png" alt="normalnoise" style="zoom:67%;" />
 
+可以看到其模拟效果比正弦噪声好得多。
+
+**噪声控制** 为了实验的控制变量，我们设计了噪声控制开关`controlnoise: Bool` ：开关打开时，我们将不同Event对应Channel上的噪声设置为完全相同，而同一Event内部不同Channel之间的噪声则保持随机；开关关闭时，我们生成所有波形的噪声都是随机的。使用噪声控制不仅可以给不同Event设置相同的噪声环境以控制变量，更可以提升波形处理的速度（15min到7min），因为不再需要每个波形随机生成噪声了。
+
 
 
 #### 4.2.3. 波形叠加
 
+波形叠加需要将同Event同Channel的波形筛选出来，并进行叠加，实现这一功能最直接的做法是使用 `pandas.Dataframe.groupby` 。然而，面对极大的数据量(40G)，转化为 `pandas` 的做法对内存消耗过大且效率低下，而简单的`for` 循环则效率更低。因此，我们面临着实现纯`numpy` GroupBy功能的需求。
 
+参考[Stack Overflow](https://stackoverflow.com/questions/58546957/sum-of-rows-based-on-index-with-numpy) ，我们用 `numpy` 实现了单键值的矢量化GroupBy叠加，主要实现如下（其中`Eindex`为`np.unique`对EventID的切割）：
+
+```python
+# numpy groupby
+# ref:
+# https://stackoverflow.com/questions/58546957/sum-of-rows-based-on-index-with-numpy
+Channels, idx = np.unique(
+  PETruth[Eindex[i]:Eindex[i+1]]['ChannelID'],
+  return_inverse=True)
+order = np.argsort(idx)
+breaks = np.flatnonzero(np.concatenate(([1],np.diff(idx[order]))))
+# 同Channel波形相加
+result = np.add.reduceat(Waveform[order], breaks, axis=0)
+```
+
+这一实现无论在效率还是内存占用上，都远优于 `pandas` 的实现（`pandas` 实现共需约40min，而本实现只需约7min）。波形叠加的效果如下图所示：
+
+<img src="./figs/wfadd.png" alt="wfadd" style="zoom:67%;" />
+
+
+
+#### 4.2.4. 性能优化
+
+由于波形数据量很大（40G），对波形的处理以及文件操作的效率要求很高，其处理时长是整个项目效率的瓶颈所在。除了上一节中提到的纯 `numpy` GroupBy外，我们还进行了以下优化，将文件处理耗时从约40min降低到了约7min：
+
+1. 以EventID**分块处理**。由于整体处理所需内存过大，必须分块处理，按EventID分块处理同时可以有效地方便GroupBy波形叠加的工作。
+
+2. 拼接Waveform表时采用`np.empty` **初始化后赋值**。相比反复 `np.append` ，这样做可以有效避免 `numpy` 反复调整内存地址，维持 `np.ndarray` 的连续内存优势，大大提升处理速度。而相比 `np.zeros` 初始化效率更高。
+
+3. **前置时间采样与噪声生成工作**。在对Event循环的过程中，可以再循环前完成时间采样与噪声生成的工作，这样不仅可以实现 **噪声控制** 的功能，还可以有效避免每次循环都重新采样生成噪声的问题，大大提升运行效率。
+
+4. **多进程文件分块读写**。由于波形数据量过大，无法全部存入内存中，考虑到IO效率、文件压缩效率与计算效率的匹配，必须恰当地分块处理、分块读写。为此，我们采用了 `h5py` 数据集的 `resize` 功能，动态调整数据集长度并写入数据。同时，为了多进程计算，我们需要构造计算进程与文件读写进程之间的通信机制。参考了[Stack Overflow](https://stackoverflow.com/questions/15704010/write-data-to-hdf-file-using-multiprocessing) ，我们采用了`multiprocessing.queue` 实现了这一功能。代码架构如下：
+
+   ```python
+   # 分Event多进程生成Waveform
+   # ref:
+   # https://stackoverflow.com/questions/15704010/write-data-to-hdf-file-using-multiprocessing
+   
+   def getWF_mp(inqueue, output):
+     '''
+     波形处理函数
+     '''
+     # ... 生成波形WF
+     output.put([1, WF], block=False) # 放入output队列等待写入文件
+   
+   def write_file(output):
+     '''
+     文件写入函数
+     '''
+     # ... 打开文件
+     while True:
+     	# ... 获取待写入WF
+       if flag: # 判断是否已获得所有WF
+         # 扩大Waveform表
+         wfds.resize(wfds.shape[0] + len(WF), axis=0)
+         # 写入WF
+         wfds[-len(WF):] = WF
+       else:
+         # 写入完成
+         if len(WF) > 0:
+           wfds.resize(wfds.shape[0] + len(WF), axis=0)
+           wfds[-len(WF):] = WF
+         break
+     # ... 关闭文件
+   
+   # 待写入文件队列
+   output = mp.Queue()
+   # 待执行任务队列
+   inqueue = mp.Queue()
+   # 进程表
+   jobs = []
+   # 写入文件进程
+   proc = mp.Process(target=write_file, args=(output, ))
+   proc.start()
+   for i in range(num_processes):
+     # 生成WF进程
+     p = mp.Process(target=getWF_mp, args=(inqueue, output))
+     jobs.append(p)
+     p.start()
+   for i in range(len(Eindex)-1):
+     # 分配任务
+     inqueue.put(i)
+   for i in range(num_processes):
+     # 结束任务
+     inqueue.put(sentinal)
+   for p in jobs:
+     p.join()
+   # 结束文件写入
+   output.put([0, None], block=False)
+   proc.join()
+   pbar_write.close()
+   pbar_getwf.close()
+   ```
+
+   但是多进程实现的调度开销较大，经过优化虽然能够实现100M/s左右的IO速度，但调度上的耗时较大，最终在笔记本上的测试结果与单进程不相上下。
 
 
 
@@ -441,7 +563,9 @@ def double_exp_model(t, ampli=1000, td=10, tr=5):
 
 最好用的工具是```breakpoint()```函数，能够在需要的地方停下，并查看任何需要的量。
 
-当需要查看每个循环中的某个量时，简单的```print(f'{value}')```函数其实就很好用
+当需要查看每个循环中的某个量时，简单的```print(f'{value}')```函数其实就很好用。
+
+为了监测循环时的运行情况与时间消耗，使用 `tqdm` 包的进度条极为方便。而在多进程循环中，可以用 `tqdm.update()` 等函数手动更新进度条。
 
 一个简单好用的工具是``timeit``。当你确定了数据的大小，而不知道哪种方法更快时，可以迅速地在ipython中用``timeit``测量两种方法的速度，而无需用``time.time``加上for循环。
 
