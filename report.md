@@ -313,7 +313,7 @@ $$
 
 <img src="./figs/wftd70tr5.png" alt="wftd70tr5" style="zoom:67%;" />
 
-而参数 $\tau_r$ 则主要决定了峰值的位置，如相比上图增大 $\tau_r$ （取 $A=1000, \tau_d = 30\text{ns}, \tau_r = 30\text{ns}$ ）可以得到一个更偏右的峰值：
+而参数 $\tau_r$ 则主要决定了峰值的位置，如相比上图增大 $\tau_r$ （取 $A=1000, \tau_d = 70\text{ns}, \tau_r = 30\text{ns}$ ）可以得到一个更偏右的峰值：
 
 <img src="./figs/wftd70tr30.png" alt="wftd70tr30" style="zoom:67%;" />
 
