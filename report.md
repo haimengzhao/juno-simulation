@@ -35,6 +35,7 @@
 
 ```
 |-- project-1-junosap-pmtsmasher
+    |-- requirements.txt
     |-- geo.h5
     |-- Makefile
     |-- draw.py
@@ -53,9 +54,17 @@
     |-- figs
 ```
 
-其中 `geo.h5` 为 JUNO 的 PMT 位置数据， `Makefile` 文件定义了文件处理 Pipeline， `simulate.py` 和 `draw.py` 分别完成模拟与绘图的功能， `scripts` 文件夹下的各文件完成各个子功能， `report.md` 和`figs` 文件夹为本实验报告及其所用到的样图， `docs` 文件夹下存储了本项目的要求文档。
+其中`requirements.txt` 罗列了本项目的依赖包版本，  `geo.h5` 为 JUNO 的 PMT 位置数据， `Makefile` 文件定义了文件处理 Pipeline， `simulate.py` 和 `draw.py` 分别完成模拟与绘图的功能， `scripts` 文件夹下的各文件完成各个子功能， `report.md` 和`figs` 文件夹为本实验报告及其所用到的样图， `docs` 文件夹下存储了本项目的要求文档。
 
 ### 0.2. 执行方式
+
+在执行前请确保依赖包都已安装并符合版本要求，执行
+
+```shell
+pip install -r requirements.txt
+```
+
+以安装依赖包。
 
 在项目目录下用 `shell` 执行代码
 
