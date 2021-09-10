@@ -96,6 +96,9 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list):
 
 
 def transist(coordinates, velocities, times, events, can_reflect, must_transist=False):
+    '''
+    模拟在液闪内的光子下一次到达液闪边界的过程
+    '''
     # 求解折射点，ts为到达液闪边界的时间
     cv = np.einsum('kn, kn->n', coordinates, velocities)
     ts = -cv + np.sqrt(cv**2 - np.einsum('kn, kn->n', coordinates, coordinates) + Ri**2)
@@ -172,10 +175,7 @@ def transist(coordinates, velocities, times, events, can_reflect, must_transist=
 
 def find_hit_PMT(coordinates, velocities, fromPMT=False):
     '''
-    coordinates: (3, n)
-    PMT_coordinates: (3, m)
-    接收一族光线，给出其未来所有时间内与给定PMT的最近距离
-    注意：光线是有方向的，如果光子将越离越远，那么将返回负数距离
+    通过KDTree寻找一组光子最终能否击中PMT以及击中PMT的序号
     '''
     # 查找在球面上最邻近的PMT
     cv1 = np.einsum('kn, kn->n', coordinates, velocities)
@@ -211,6 +211,9 @@ def find_hit_PMT(coordinates, velocities, fromPMT=False):
 
 
 def hit_PMT(coordinates, velocities, times, events, can_reflect, fromPMT=False, must_transist=False):
+    '''
+    模拟光子在PMT表面反射的过程
+    '''
     # 给出打到的PMT编号和能打中PMT光子的编号
     nearest_PMT_index, possible_photon = find_hit_PMT(coordinates, velocities, fromPMT)
     possible_coordinates = coordinates[:, possible_photon]
@@ -258,10 +261,11 @@ def hit_PMT(coordinates, velocities, times, events, can_reflect, fromPMT=False, 
     need_reflect = np.logical_not(need_transmit) * possible_reflect.astype(bool)
 
     if must_transist:
+        # 如果之前以及反射过，这次必须折射
         # print(f'must_transmit = {arrive_times.shape[0]}')
         write(possible_events, nearest_PMT_index, arrive_times, PETruth)
     else:
-    # 处理折射进入PMT的光子
+        # 处理折射进入PMT的光子
         if need_transmit.any():
             # print(f'need_transmit = {need_transmit.sum()}')
             write(
@@ -314,6 +318,9 @@ def hit_PMT(coordinates, velocities, times, events, can_reflect, fromPMT=False, 
 
 
 def go_inside(coordinates, velocities, times, events):
+    '''
+    模拟从PMT表面反射回液闪内的光子在液闪表面的行为
+    '''
     # 求解折射点，ts为到达液闪边界的时间
     cv = np.einsum('kn, kn->n', coordinates, velocities)
     ts = -cv - np.sqrt(cv**2 - np.einsum('kn, kn->n', coordinates, coordinates) + Ri**2)
@@ -364,8 +371,10 @@ def go_inside(coordinates, velocities, times, events):
 
 
 
-
 def write(events, PMT_indexs, times, PETruth):
+    '''
+    将确定发生的事件写入PETruth
+    '''
     PETruth['EventID'].extend(list(events))
     PETruth['ChannelID'].extend(list(PMT_indexs))
     PETruth['PETime'].extend(list(times))
