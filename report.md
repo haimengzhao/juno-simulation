@@ -48,6 +48,7 @@
         |-- getProbTime.py
         |-- utils.py
     |-- report.md
+    |-- report.pdf
     |-- docs
     |-- figs
 ```
@@ -69,9 +70,10 @@ make
 ```shell
 make data.h5
 make figures.pdf
+make probe.pdf
 ```
 
-可分别生成模拟数据 `data.h5` 和绘图 `figures.pdf` 。
+可分别生成模拟数据 `data.h5` 、绘图 `figures.pdf` 以及Sim-driven的Probe函数热力图 `probe.pdf` 。
 
 执行代码
 
@@ -79,7 +81,7 @@ make figures.pdf
 make clean
 ```
 
-可以清理生成的 `data.h5` 和 `figures.pdf` 文件。
+可以清理生成的 `data.h5` 、 `figures.pdf` 和 `probe.pdf` 文件。
 
 若要单独测试 `simulate.py` 和 `draw.py` ，可以执行
 
