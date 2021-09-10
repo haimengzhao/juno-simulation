@@ -149,7 +149,7 @@ def hit_PMT(coordinates, velocities, intensities, times, PMT_coordinates):
     )
 
     # Bonus: 计算进入PMT的折射系数
-    emergence_angles = np.arccos(np.minimum(np.einsum('kn, kn->n', allowed_velocities, -normal_vectors), 1))
+    emergence_angles = np.arcsin((n_water/n_glass)*incidence_angles)
     Rs = ne.evaluate(
         '(sin(emergence_angles - incidence_angles)/sin(emergence_angles + incidence_angles))**2'
     )
