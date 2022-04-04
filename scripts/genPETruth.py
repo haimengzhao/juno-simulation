@@ -65,7 +65,7 @@ def get_PE_Truth(ParticleTruth, PhotonTruth, PMT_list):
             :, start_coordinate_index:end_coordinate_index
         ]
 
-        t = rng.random(photon) * np.pi
+        t = np.pi/2 + rng.choice([-1, 1], size=photon)*(np.pi/2 - np.arcsin(rng.random(photon)))
         p = rng.random(photon) * 2 * np.pi
         vxs = np.sin(t) * np.cos(p)
         vys = np.sin(t) * np.sin(p)
