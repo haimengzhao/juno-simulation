@@ -85,7 +85,7 @@ def generate_events(number_of_events):
     print("正在生成event位置...")
     # 生成event的球坐标位置
     event_r = rng.power(3, size=number_of_events) * LS_RADIUS
-    event_theta = rng.random(size=number_of_events) * np.pi
+    event_theta = np.pi/2 + rng.choice([-1, 1], size=number_of_events)*(np.pi/2 - np.arcsin(rng.random(size=number_of_events)))
     event_phi = rng.random(size=number_of_events) * np.pi * 2
 
     # 转为直角坐标
